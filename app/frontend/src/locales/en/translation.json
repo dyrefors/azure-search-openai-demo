@@ -1,6 +1,6 @@
 {
-    "pageTitle": "Azure OpenAI + AI Search",
-    "headerTitle": "Azure OpenAI + AI Search",
+    "pageTitle": "ProMIS AI Chat",
+    "headerTitle": "ProMIS AI Chat",
     "chat": "Chat",
     "qa": "Ask a question",
     "login": "Login",
@@ -37,10 +37,10 @@
     "chatEmptyStateTitle": "Chat with your data",
     "chatEmptyStateSubtitle": "Ask anything or try an example",
     "defaultExamples": {
-        "1": "What is included in my Northwind Health Plus plan that is not in standard?",
-        "2": "What happens in a performance review?",
-        "3": "What does a Product Manager do?",
-        "placeholder": "Type a new question (e.g. does my plan cover annual eye exams?)"
+        "1": "How does CBM ensure mutual benefit in partnerships?",
+        "2": "How is the project status updated in ProMIS?",
+        "3": "How do I submit a request for funds (RoF) in ProMIS?",
+        "placeholder": "Type a new question (e.g. what are some considerations in the country planning process?)"
     },
     "askTitle": "Ask your data",
     "gpt4vExamples": {
