@@ -2,17 +2,20 @@ import os
 from abc import ABC
 from collections.abc import AsyncGenerator, Awaitable
 from dataclasses import dataclass
-from typing import (
-    Any,
-    Callable,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Any, Callable, Optional, TypedDict, Union, cast
 from urllib.parse import urljoin
 
 import aiohttp
+from azure.search.documents.agent.aio import KnowledgeAgentRetrievalClient
+from azure.search.documents.agent.models import (
+    KnowledgeAgentAzureSearchDocReference,
+    KnowledgeAgentIndexParams,
+    KnowledgeAgentMessage,
+    KnowledgeAgentMessageTextContent,
+    KnowledgeAgentRetrievalRequest,
+    KnowledgeAgentRetrievalResponse,
+    KnowledgeAgentSearchActivityRecord,
+)
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.models import (
     QueryCaptionResult,
@@ -36,25 +39,22 @@ from core.authentication import AuthenticationHelper
 
 @dataclass
 class Document:
-    id: Optional[str]
-    content: Optional[str]
-    embedding: Optional[list[float]]
-    image_embedding: Optional[list[float]]
-    category: Optional[str]
-    sourcepage: Optional[str]
-    sourcefile: Optional[str]
-    oids: Optional[list[str]]
-    groups: Optional[list[str]]
-    captions: list[QueryCaptionResult]
+    id: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    sourcepage: Optional[str] = None
+    sourcefile: Optional[str] = None
+    oids: Optional[list[str]] = None
+    groups: Optional[list[str]] = None
+    captions: Optional[list[QueryCaptionResult]] = None
     score: Optional[float] = None
     reranker_score: Optional[float] = None
+    search_agent_query: Optional[str] = None
 
     def serialize_for_results(self) -> dict[str, Any]:
-        return {
+        result_dict = {
             "id": self.id,
             "content": self.content,
-            "embedding": Document.trim_embedding(self.embedding),
-            "imageEmbedding": Document.trim_embedding(self.image_embedding),
             "category": self.category,
             "sourcepage": self.sourcepage,
             "sourcefile": self.sourcefile,
@@ -74,19 +74,9 @@ class Document:
             ),
             "score": self.score,
             "reranker_score": self.reranker_score,
+            "search_agent_query": self.search_agent_query,
         }
-
-    @classmethod
-    def trim_embedding(cls, embedding: Optional[list[float]]) -> Optional[str]:
-        """Returns a trimmed list of floats from the vector embedding."""
-        if embedding:
-            if len(embedding) > 2:
-                # Format the embedding list to show the first 2 items followed by the count of the remaining items."""
-                return f"[{embedding[0]}, {embedding[1]} ...+{len(embedding) - 2} more]"
-            else:
-                return str(embedding)
-
-        return None
+        return result_dict
 
 
 @dataclass
@@ -143,7 +133,12 @@ class Approach(ABC):
     # List of GPT reasoning models support
     GPT_REASONING_MODELS = {
         "o1": GPTReasoningModelSupport(streaming=False),
+        "o3": GPTReasoningModelSupport(streaming=True),
         "o3-mini": GPTReasoningModelSupport(streaming=True),
+        "o4-mini": GPTReasoningModelSupport(streaming=True),
+        "gpt-5": GPTReasoningModelSupport(streaming=True),
+        "gpt-5-nano": GPTReasoningModelSupport(streaming=True),
+        "gpt-5-mini": GPTReasoningModelSupport(streaming=True),
     }
     # Set a higher token limit for GPT reasoning models
     RESPONSE_DEFAULT_TOKEN_LIMIT = 1024
@@ -159,6 +154,7 @@ class Approach(ABC):
         embedding_deployment: Optional[str],  # Not needed for non-Azure OpenAI or for retrieval_mode="text"
         embedding_model: str,
         embedding_dimensions: int,
+        embedding_field: str,
         openai_host: str,
         vision_endpoint: str,
         vision_token_provider: Callable[[], Awaitable[str]],
@@ -173,6 +169,7 @@ class Approach(ABC):
         self.embedding_deployment = embedding_deployment
         self.embedding_model = embedding_model
         self.embedding_dimensions = embedding_dimensions
+        self.embedding_field = embedding_field
         self.openai_host = openai_host
         self.vision_endpoint = vision_endpoint
         self.vision_token_provider = vision_token_provider
@@ -238,8 +235,6 @@ class Approach(ABC):
                     Document(
                         id=document.get("id"),
                         content=document.get("content"),
-                        embedding=document.get("embedding"),
-                        image_embedding=document.get("imageEmbedding"),
                         category=document.get("category"),
                         sourcepage=document.get("sourcepage"),
                         sourcefile=document.get("sourcefile"),
@@ -261,6 +256,74 @@ class Approach(ABC):
             ]
 
         return qualified_documents
+
+    async def run_agentic_retrieval(
+        self,
+        messages: list[ChatCompletionMessageParam],
+        agent_client: KnowledgeAgentRetrievalClient,
+        search_index_name: str,
+        top: Optional[int] = None,
+        filter_add_on: Optional[str] = None,
+        minimum_reranker_score: Optional[float] = None,
+        max_docs_for_reranker: Optional[int] = None,
+        results_merge_strategy: Optional[str] = None,
+    ) -> tuple[KnowledgeAgentRetrievalResponse, list[Document]]:
+        # STEP 1: Invoke agentic retrieval
+        response = await agent_client.retrieve(
+            retrieval_request=KnowledgeAgentRetrievalRequest(
+                messages=[
+                    KnowledgeAgentMessage(
+                        role=str(msg["role"]), content=[KnowledgeAgentMessageTextContent(text=str(msg["content"]))]
+                    )
+                    for msg in messages
+                    if msg["role"] != "system"
+                ],
+                target_index_params=[
+                    KnowledgeAgentIndexParams(
+                        index_name=search_index_name,
+                        reranker_threshold=minimum_reranker_score,
+                        max_docs_for_reranker=max_docs_for_reranker,
+                        filter_add_on=filter_add_on,
+                        include_reference_source_data=True,
+                    )
+                ],
+            )
+        )
+
+        # STEP 2: Generate a contextual and content specific answer using the search results and chat history
+        activities = response.activity
+        activity_mapping = (
+            {
+                activity.id: activity.query.search if activity.query else ""
+                for activity in activities
+                if isinstance(activity, KnowledgeAgentSearchActivityRecord)
+            }
+            if activities
+            else {}
+        )
+
+        results = []
+        if response and response.references:
+            if results_merge_strategy == "interleaved":
+                # Use interleaved reference order
+                references = sorted(response.references, key=lambda reference: int(reference.id))
+            else:
+                # Default to descending strategy
+                references = response.references
+            for reference in references:
+                if isinstance(reference, KnowledgeAgentAzureSearchDocReference) and reference.source_data:
+                    results.append(
+                        Document(
+                            id=reference.doc_key,
+                            content=reference.source_data["content"],
+                            sourcepage=reference.source_data["sourcepage"],
+                            search_agent_query=activity_mapping[reference.activity_source],
+                        )
+                    )
+                if top and len(results) == top:
+                    break
+
+        return response, results
 
     def get_sources_content(
         self, results: list[Document], use_semantic_captions: bool, use_image_citation: bool
@@ -314,12 +377,14 @@ class Approach(ABC):
             **dimensions_args,
         )
         query_vector = embedding.data[0].embedding
-        return VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields="embedding")
+        # This performs an oversampling due to how the search index was setup,
+        # so we do not need to explicitly pass in an oversampling parameter here
+        return VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields=self.embedding_field)
 
     async def compute_image_embedding(self, q: str):
         endpoint = urljoin(self.vision_endpoint, "computervision/retrieval:vectorizeText")
         headers = {"Content-Type": "application/json"}
-        params = {"api-version": "2023-02-01-preview", "modelVersion": "latest"}
+        params = {"api-version": "2024-02-01", "model-version": "2023-04-15"}
         data = {"text": q}
 
         headers["Authorization"] = "Bearer " + await self.vision_token_provider()
