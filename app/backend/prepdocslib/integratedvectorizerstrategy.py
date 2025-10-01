@@ -143,36 +143,36 @@ class IntegratedVectorizerStrategy(Strategy):
         await search_manager.create_index()
 
         ds_client = self.search_info.create_search_indexer_client()
-        ds_container = SearchIndexerDataContainer(name=self.blob_manager.container)
-        data_source_connection = SearchIndexerDataSourceConnection(
-            name=self.data_source_name,
-            type=SearchIndexerDataSourceType.AZURE_BLOB,
-            connection_string=self.blob_manager.get_managedidentity_connectionstring(),
-            container=ds_container,
-            data_deletion_detection_policy=NativeBlobSoftDeleteDeletionDetectionPolicy(),
-        )
+        #ds_container = SearchIndexerDataContainer(name=self.blob_manager.container)
+        #data_source_connection = SearchIndexerDataSourceConnection(
+        #    name=self.data_source_name,
+        #    type=SearchIndexerDataSourceType.AZURE_BLOB,
+        #    connection_string=self.blob_manager.get_managedidentity_connectionstring(),
+        #    container=ds_container,
+        #    data_deletion_detection_policy=NativeBlobSoftDeleteDeletionDetectionPolicy(),
+        #)
 
-        await ds_client.create_or_update_data_source_connection(data_source_connection)
+        #await ds_client.create_or_update_data_source_connection(data_source_connection)
 
         embedding_skillset = await self.create_embedding_skill(self.search_info.index_name)
         await ds_client.create_or_update_skillset(embedding_skillset)
         await ds_client.close()
 
     async def run(self):
-        if self.document_action == DocumentAction.Add:
-            files = self.list_file_strategy.list()
-            async for file in files:
-                try:
-                    await self.blob_manager.upload_blob(file)
-                finally:
-                    if file:
-                        file.close()
-        elif self.document_action == DocumentAction.Remove:
-            paths = self.list_file_strategy.list_paths()
-            async for path in paths:
-                await self.blob_manager.remove_blob(path)
-        elif self.document_action == DocumentAction.RemoveAll:
-            await self.blob_manager.remove_blob()
+        #if self.document_action == DocumentAction.Add:
+        #    files = self.list_file_strategy.list()
+        #    async for file in files:
+        #        try:
+        #            await self.blob_manager.upload_blob(file)
+        #        finally:
+        #            if file:
+        #                file.close()
+        #elif self.document_action == DocumentAction.Remove:
+        #    paths = self.list_file_strategy.list_paths()
+        #    async for path in paths:
+        #        await self.blob_manager.remove_blob(path)
+        #elif self.document_action == DocumentAction.RemoveAll:
+        #    await self.blob_manager.remove_blob()
 
         # Create an indexer
         indexer = SearchIndexer(
@@ -180,7 +180,7 @@ class IntegratedVectorizerStrategy(Strategy):
             description="Indexer to index documents and generate embeddings",
             skillset_name=self.skillset_name,
             target_index_name=self.search_info.index_name,
-            data_source_name=self.data_source_name,
+            data_source_name="rag-1754628106967-datasource",
         )
 
         indexer_client = self.search_info.create_search_indexer_client()
