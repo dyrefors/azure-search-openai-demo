@@ -178,6 +178,7 @@ def server_app_known_client_application(client_app_id: str) -> Application:
 
 
 async def main():
+    exit(0)  # Temporarily disable the script
     load_azd_env()
 
     if not test_authentication_enabled():
@@ -205,7 +206,7 @@ async def main():
     )
     print("Setting up server application permissions...")
     server_app_permission = server_app_permission_setup(server_app_id)
-    await graph_client.applications.by_application_id(server_object_id).patch(server_app_permission)
+    #await graph_client.applications.by_application_id(server_object_id).patch(server_app_permission)
 
     _, client_app_id, _ = await create_or_update_application_with_secret(
         graph_client,
@@ -215,9 +216,9 @@ async def main():
     )
 
     print("Setting up server known client applications...")
-    await graph_client.applications.by_application_id(server_object_id).patch(
-        server_app_known_client_application(client_app_id)
-    )
+    #await graph_client.applications.by_application_id(server_object_id).patch(
+    #    server_app_known_client_application(client_app_id)
+    #)
     print("Authentication setup complete.")
 
 
