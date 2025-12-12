@@ -63,7 +63,9 @@
         "info": "Info",
         "save": "Sauvegarder",
         "copy": "Copier",
-        "copied": "Copié!"
+        "copied": "Copié!",
+        "feedbackUp": "Marquer la réponse comme utile",
+        "feedbackDown": "Marquer la réponse comme non utile"
     },
 
     "headerTexts":{

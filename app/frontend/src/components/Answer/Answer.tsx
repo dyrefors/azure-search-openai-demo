@@ -26,6 +26,10 @@ interface Props {
     showFollowupQuestions?: boolean;
     showSpeechOutputBrowser?: boolean;
     showSpeechOutputAzure?: boolean;
+    enableFeedback?: boolean; // show thumbs and allow sending feedback
+    getIdToken?: () => Promise<string | undefined>; // provider for id token when logged in
+    feedbackValue?: "up" | "down"; // controlled feedback value
+    onFeedbackChange?: (value: "up" | "down" | undefined) => void; // callback to parent
 }
 
 export const Answer = ({
@@ -40,13 +44,30 @@ export const Answer = ({
     onFollowupQuestionClicked,
     showFollowupQuestions,
     showSpeechOutputAzure,
-    showSpeechOutputBrowser
+    showSpeechOutputBrowser,
+    enableFeedback,
+    getIdToken,
+    feedbackValue,
+    onFeedbackChange
 }: Props) => {
     const followupQuestions = answer.context?.followup_questions;
     const parsedAnswer = useMemo(() => parseAnswerToHtml(answer, isStreaming, onCitationClicked), [answer]);
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
+    const canSendFeedback = enableFeedback && typeof answer.session_state === "string" && answer.session_state !== "";
+
+    const sendFeedback = async (value: "up" | "down") => {
+        if (!canSendFeedback) return;
+        try {
+            const idToken = getIdToken ? await getIdToken() : undefined;
+            // Lazy import to avoid circular imports at module init time
+            const { postFeedbackApi } = await import("../../api/api");
+            await postFeedbackApi(answer.session_state as string, index, value, idToken);
+        } catch (e) {
+            console.error("Failed to send feedback", e);
+        }
+    };
 
     const handleCopy = () => {
         // Single replace to remove all HTML tags to remove the citations
@@ -74,6 +95,34 @@ export const Answer = ({
                             ariaLabel={copied ? t("tooltips.copied") : t("tooltips.copy")}
                             onClick={handleCopy}
                         />
+                        {enableFeedback && (
+                            <>
+                                <IconButton
+                                    style={{ color: feedbackValue === "up" ? "green" : "black" }}
+                                    iconProps={{ iconName: "Like" }}
+                                    title={t("tooltips.feedbackUp")}
+                                    ariaLabel={t("tooltips.feedbackUp")}
+                                    disabled={isStreaming}
+                                    onClick={() => {
+                                        const newVal = feedbackValue === "up" ? undefined : "up";
+                                        if (onFeedbackChange) onFeedbackChange(newVal);
+                                        if (newVal) sendFeedback(newVal);
+                                    }}
+                                />
+                                <IconButton
+                                    style={{ color: feedbackValue === "down" ? "#c50f1f" : "black" }}
+                                    iconProps={{ iconName: "Dislike" }}
+                                    title={t("tooltips.feedbackDown")}
+                                    ariaLabel={t("tooltips.feedbackDown")}
+                                    disabled={isStreaming}
+                                    onClick={() => {
+                                        const newVal = feedbackValue === "down" ? undefined : "down";
+                                        if (onFeedbackChange) onFeedbackChange(newVal);
+                                        if (newVal) sendFeedback(newVal);
+                                    }}
+                                />
+                            </>
+                        )}
                         <IconButton
                             style={{ color: "black" }}
                             iconProps={{ iconName: "Lightbulb" }}

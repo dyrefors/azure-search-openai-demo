@@ -8,6 +8,8 @@ import { useLogin } from "../../authConfig";
 import { LoginButton } from "../../components/LoginButton";
 import { IconButton } from "@fluentui/react";
 
+import logo from "../../assets/cbm-promis.png";
+
 const Layout = () => {
     const { t } = useTranslation();
     const [menuOpen, setMenuOpen] = useState(false);
@@ -39,9 +41,10 @@ const Layout = () => {
             <header className={styles.header} role={"banner"}>
                 <div className={styles.headerContainer} ref={menuRef}>
                     <Link to="/" className={styles.headerTitleContainer}>
-                        <h3 className={styles.headerTitle}>{t("headerTitle")}</h3>
+                        {/*<h3 className={styles.headerTitle}>{t("headerTitle")}</h3>*/}
+                        <img src={logo} alt="Logo" className={styles.headerLogo} />
                     </Link>
-                    <nav>
+                    {/*<nav>
                         <ul className={`${styles.headerNavList} ${menuOpen ? styles.show : ""}`}>
                             <li>
                                 <NavLink
@@ -52,7 +55,7 @@ const Layout = () => {
                                     {t("chat")}
                                 </NavLink>
                             </li>
-                            {/*<li>
+                            <li>
                                 <NavLink
                                     to="/qa"
                                     className={({ isActive }) => (isActive ? styles.headerNavPageLinkActive : styles.headerNavPageLink)}
@@ -60,9 +63,9 @@ const Layout = () => {
                                 >
                                     {t("qa")}
                                 </NavLink>
-                            </li>*/}
+                            </li>
                         </ul>
-                    </nav>
+                    </nav>*/}
                     <div className={styles.loginMenuContainer}>
                         {useLogin && <LoginButton />}
                         <IconButton

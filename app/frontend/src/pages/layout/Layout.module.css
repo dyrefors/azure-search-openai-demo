@@ -11,8 +11,8 @@
 }
 
 .header {
-    background-color: #222222;
-    color: #f2f2f2;
+    background-color: #fff;
+    color: #222222;
 }
 
 .headerContainer {
@@ -22,6 +22,7 @@
     padding-left: 1rem;
     padding-right: 1rem;
     position: relative;
+    border-bottom: 1px solid #ab1515;
 }
 
 .headerTitleContainer {
@@ -32,8 +33,9 @@
 }
 
 .headerLogo {
-    height: 2rem;
+    height: 3.3rem;
     width: auto;
+    margin: 5px 0;
 }
 
 .headerTitle {

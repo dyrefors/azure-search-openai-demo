@@ -53,19 +53,32 @@ async def post_chat_history(auth_claims: dict[str, Any]):
         }
 
         message_pair_items = []
-        # Now insert a message item for each question/response pair:
+        # Now insert or update a message item for each question/response pair.
+        # If an existing item has feedback fields, preserve them so a subsequent chat_history write does not wipe feedback.
         for ind, message_pair in enumerate(message_pairs):
-            message_pair_items.append(
-                {
-                    "id": f"{session_id}-{ind}",
-                    "version": current_app.config[CONFIG_COSMOS_HISTORY_VERSION],
-                    "session_id": session_id,
-                    "entra_oid": entra_oid,
-                    "type": "message_pair",
-                    "question": message_pair[0],
-                    "response": message_pair[1],
-                }
-            )
+            base_item = {
+                "id": f"{session_id}-{ind}",
+                "version": current_app.config[CONFIG_COSMOS_HISTORY_VERSION],
+                "session_id": session_id,
+                "entra_oid": entra_oid,
+                "type": "message_pair",
+                "question": message_pair[0],
+                "response": message_pair[1],
+            }
+
+            # Attempt to read existing item to merge feedback fields
+            try:
+                existing = await container.read_item(base_item["id"], partition_key=[entra_oid, session_id])
+                # Preserve feedback if present
+                if "feedback" in existing:
+                    base_item["feedback"] = existing.get("feedback")
+                if "feedback_timestamp" in existing:
+                    base_item["feedback_timestamp"] = existing.get("feedback_timestamp")
+            except Exception:
+                # Item does not exist yet (new session or new message), ignore
+                pass
+
+            message_pair_items.append(base_item)
 
         batch_operations = [("upsert", (session_item,))] + [
             ("upsert", (message_pair_item,)) for message_pair_item in message_pair_items
@@ -200,6 +213,59 @@ async def delete_chat_history_session(auth_claims: dict[str, Any], session_id: s
         return await make_response("", 204)
     except Exception as error:
         return error_response(error, f"/chat_history/sessions/{session_id}")
+
+
+@chat_history_cosmosdb_bp.post("/chat_history/feedback")
+@authenticated
+async def post_chat_history_feedback(auth_claims: dict[str, Any]):
+    """Add or update feedback (thumbs up/down) for a specific message pair within a session.
+
+    Request JSON body:
+    {
+        "session_id": "<session id>",
+        "message_index": <zero based index of message pair>,
+        "feedback": "up" | "down"
+    }
+    """
+    if not current_app.config[CONFIG_CHAT_HISTORY_COSMOS_ENABLED]:
+        return jsonify({"error": "Chat history not enabled"}), 400
+
+    container: ContainerProxy = current_app.config[CONFIG_COSMOS_HISTORY_CONTAINER]
+    if not container:
+        return jsonify({"error": "Chat history not enabled"}), 400
+
+    entra_oid = auth_claims.get("oid")
+    if not entra_oid:
+        return jsonify({"error": "User OID not found"}), 401
+
+    try:
+        request_json = await request.get_json()
+        session_id = request_json.get("session_id")
+        message_index = request_json.get("message_index")
+        feedback = request_json.get("feedback")
+
+        if session_id is None or message_index is None or feedback not in ["up", "down"]:
+            return jsonify({"error": "Invalid request"}), 400
+
+        message_item_id = f"{session_id}-{message_index}"
+
+        # Read existing item
+        try:
+            # read_item requires the partition key value; multi-part PK passed as list
+            item = await container.read_item(message_item_id, partition_key=[entra_oid, session_id])
+        except Exception as e:  # Cosmos SDK raises specific exceptions; treat any failure as not found for now
+            return jsonify({"error": "Message not found"}), 404
+
+        # Update feedback fields (idempotent overwrite)
+        item["feedback"] = feedback
+        item["feedback_timestamp"] = int(time.time() * 1000)
+
+        # For upsert we can omit partition_key since it is derivable from the body for composite PK
+        await container.upsert_item(item)
+        return jsonify({"status": "ok"}), 200
+    except Exception as error:
+        # For consistency with other endpoints, use generic error handler
+        return error_response(error, "/chat_history/feedback")
 
 
 @chat_history_cosmosdb_bp.before_app_serving

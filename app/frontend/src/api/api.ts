@@ -191,3 +191,16 @@ export async function deleteChatHistoryApi(id: string, idToken: string): Promise
         throw new Error(`Deleting chat history failed: ${response.statusText}`);
     }
 }
+
+export async function postFeedbackApi(sessionId: string, messageIndex: number, feedback: "up" | "down", idToken: string | undefined): Promise<void> {
+    const headers = await getHeaders(idToken);
+    const body = { session_id: sessionId, message_index: messageIndex, feedback };
+    const response = await fetch(`/chat_history/feedback`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+        console.error("Posting feedback failed", response.status, await response.text());
+    }
+}

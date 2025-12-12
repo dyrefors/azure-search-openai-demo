@@ -100,6 +100,10 @@ class MockCosmosDBResultsIterator:
 @pytest.mark.asyncio
 async def test_chathistory_newitem(auth_public_documents_client, monkeypatch):
 
+    # New implementation reads existing items first; simulate not found
+    async def mock_read_item(container_proxy, item, partition_key, **kwargs):
+        raise Exception("Not Found")
+
     async def mock_execute_item_batch(container_proxy, **kwargs):
         partition_key = kwargs["partition_key"]
         assert partition_key == ["OID_X", "123"]
@@ -119,6 +123,7 @@ async def test_chathistory_newitem(auth_public_documents_client, monkeypatch):
         assert message["question"] == "This is a test message"
         assert message["response"] == "This is a test answer"
 
+    monkeypatch.setattr(ContainerProxy, "read_item", mock_read_item)
     monkeypatch.setattr(ContainerProxy, "execute_item_batch", mock_execute_item_batch)
 
     response = await auth_public_documents_client.post(
@@ -397,3 +402,129 @@ async def test_chathistory_deleteitem_error_runtime(auth_public_documents_client
         headers={"Authorization": "Bearer MockToken"},
     )
     assert response.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_chathistory_feedback_success(auth_public_documents_client, monkeypatch):
+
+    # mock read_item returns existing message_pair
+    async def mock_read_item(container_proxy, item, partition_key, **kwargs):
+        assert item == "123-0"
+        assert partition_key == ["OID_X", "123"]
+        return {
+            "id": "123-0",
+            "version": "cosmosdb-v2",
+            "session_id": "123",
+            "entra_oid": "OID_X",
+            "type": "message_pair",
+            "question": "What does a Product Manager do?",
+            "response": {"message": {"content": "Answer", "role": "assistant"}},
+        }
+
+    async def mock_upsert_item(container_proxy, item, **kwargs):
+        assert item["feedback"] == "up"
+        assert item["feedback_timestamp"] is not None
+
+    monkeypatch.setattr(ContainerProxy, "read_item", mock_read_item)
+    monkeypatch.setattr(ContainerProxy, "upsert_item", mock_upsert_item)
+
+    response = await auth_public_documents_client.post(
+        "/chat_history/feedback",
+        headers={"Authorization": "Bearer MockToken"},
+        json={"session_id": "123", "message_index": 0, "feedback": "up"},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_chathistory_feedback_persistence(auth_public_documents_client, monkeypatch):
+    """Ensure posting chat history after feedback does not wipe feedback fields."""
+
+    # First call: feedback already set on existing item id 123-0
+    async def mock_read_item_existing(container_proxy, item, partition_key, **kwargs):
+        if item == "123-0":
+            return {
+                "id": "123-0",
+                "version": "cosmosdb-v2",
+                "session_id": "123",
+                "entra_oid": "OID_X",
+                "type": "message_pair",
+                "question": "Q1",
+                "response": "A1",
+                "feedback": "up",
+                "feedback_timestamp": 1111111111111,
+            }
+        raise Exception("Not Found")
+
+    async def mock_execute_item_batch(container_proxy, **kwargs):
+        operations = kwargs["batch_operations"]
+        # Expect two upserts: session and first message (only one answer in this test)
+        assert operations[0][0] == "upsert"
+        assert operations[1][0] == "upsert"
+        message_item = operations[1][1][0]
+        assert message_item["feedback"] == "up"
+        assert message_item["feedback_timestamp"] == 1111111111111
+
+    monkeypatch.setattr(ContainerProxy, "read_item", mock_read_item_existing)
+    monkeypatch.setattr(ContainerProxy, "execute_item_batch", mock_execute_item_batch)
+
+    response = await auth_public_documents_client.post(
+        "/chat_history",
+        headers={"Authorization": "Bearer MockToken"},
+        json={
+            "id": "123",
+            "answers": [["Q1", "A1"]],
+        },
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_chathistory_feedback_error_disabled(client):
+    response = await client.post(
+        "/chat_history/feedback",
+        headers={"Authorization": "Bearer MockToken"},
+        json={"session_id": "123", "message_index": 0, "feedback": "up"},
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_chathistory_feedback_error_entra(auth_public_documents_client):
+    response = await auth_public_documents_client.post(
+        "/chat_history/feedback",
+        json={"session_id": "123", "message_index": 0, "feedback": "up"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_chathistory_feedback_error_runtime(auth_public_documents_client, monkeypatch):
+
+    async def mock_read_item(container_proxy, item, partition_key, **kwargs):
+        raise Exception("Test Exception")
+
+    monkeypatch.setattr(ContainerProxy, "read_item", mock_read_item)
+
+    response = await auth_public_documents_client.post(
+        "/chat_history/feedback",
+        headers={"Authorization": "Bearer MockToken"},
+        json={"session_id": "123", "message_index": 0, "feedback": "up"},
+    )
+    assert response.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_chathistory_feedback_not_found(auth_public_documents_client, monkeypatch):
+
+    async def mock_read_item(container_proxy, item, partition_key, **kwargs):
+        raise Exception("Not found")
+
+    monkeypatch.setattr(ContainerProxy, "read_item", mock_read_item)
+
+    response = await auth_public_documents_client.post(
+        "/chat_history/feedback",
+        headers={"Authorization": "Bearer MockToken"},
+        json={"session_id": "123", "message_index": 0, "feedback": "down"},
+    )
+    assert response.status_code == 404

@@ -65,6 +65,7 @@ The repo includes sample data so it's ready to try end to end. In this sample ap
 - Optional addition of [speech input/output](/docs/deploy_features.md#enabling-speech-inputoutput) for accessibility
 - Optional automation of [user login and data access](/docs/login_and_acl.md) via Microsoft Entra
 - Performance tracing and monitoring with Application Insights
+- Per-answer feedback (thumbs up/down) persisted to Cosmos DB (adds `feedback` and `feedback_timestamp` fields to each message_pair when chat history with Cosmos is enabled). Feedback is preserved across subsequent updates to a session (merging logic prevents overwrites when additional messages are saved).
 
 ### Architecture Diagram
 

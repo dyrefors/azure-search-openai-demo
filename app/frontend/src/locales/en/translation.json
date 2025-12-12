@@ -35,7 +35,7 @@
     "developerSettings": "Developer settings",
 
     "chatEmptyStateTitle": "Chat with your data",
-    "chatEmptyStateSubtitle": "Ask anything or try an example",
+    "chatEmptyStateSubtitle": "This ProMIS AI Assistant supports you with ProMIS functionalities and navigation, provides process guidance based on Resource Library documents and workflows, and offers insights and learnings from CBM project portfolio. It should not be used for factual data queries or for analysing reporting data; for such queries please use the ProMIS Analyse entity and Power BI reports.",
     "defaultExamples": {
         "1": "How does CBM ensure mutual benefit in partnerships?",
         "2": "How is the project status updated in ProMIS?",
@@ -65,7 +65,9 @@
         "copy": "Copy",
         "copied": "Copied!",
         "upvote": "Helpful",
-        "downvote": "Unhelpful"
+        "downvote": "Unhelpful",
+        "feedbackUp": "Mark answer as helpful",
+        "feedbackDown": "Mark answer as not helpful"
     },
 
     "headerTexts":{

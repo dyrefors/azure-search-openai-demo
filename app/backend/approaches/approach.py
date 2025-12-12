@@ -214,6 +214,7 @@ class Approach(ABC):
     ) -> list[Document]:
         search_text = query_text if use_text_search else ""
         search_vectors = vectors if use_vector_search else []
+        
         if use_semantic_ranker:
             results = await self.search_client.search(
                 search_text=search_text,

@@ -67,6 +67,7 @@ const Chat = () => {
     const [answers, setAnswers] = useState<[user: string, response: ChatAppResponse][]>([]);
     const [streamedAnswers, setStreamedAnswers] = useState<[user: string, response: ChatAppResponse][]>([]);
     const [speechUrls, setSpeechUrls] = useState<(string | null)[]>([]);
+    const [answerFeedback, setAnswerFeedback] = useState<Record<number, "up" | "down">>({});
 
     const [showMultimodalOptions, setShowMultimodalOptions] = useState<boolean>(false);
     const [showSemanticRankerOption, setShowSemanticRankerOption] = useState<boolean>(false);
@@ -278,6 +279,7 @@ const Chat = () => {
         setAnswers([]);
         setSpeechUrls([]);
         setStreamedAnswers([]);
+        setAnswerFeedback({});
         setIsLoading(false);
         setIsStreaming(false);
     };
@@ -442,6 +444,17 @@ const Chat = () => {
                                                 showFollowupQuestions={useSuggestFollowupQuestions && answers.length - 1 === index}
                                                 showSpeechOutputAzure={showSpeechOutputAzure}
                                                 showSpeechOutputBrowser={showSpeechOutputBrowser}
+                                                enableFeedback={useLogin && showChatHistoryCosmos}
+                                                getIdToken={async () => (client ? await getToken(client) : undefined)}
+                                                feedbackValue={answerFeedback[index]}
+                                                onFeedbackChange={val =>
+                                                    setAnswerFeedback(prev => {
+                                                        const next = { ...prev };
+                                                        if (!val) delete next[index];
+                                                        else next[index] = val;
+                                                        return next;
+                                                    })
+                                                }
                                             />
                                         </div>
                                     </div>
@@ -465,6 +478,17 @@ const Chat = () => {
                                                 showFollowupQuestions={useSuggestFollowupQuestions && answers.length - 1 === index}
                                                 showSpeechOutputAzure={showSpeechOutputAzure}
                                                 showSpeechOutputBrowser={showSpeechOutputBrowser}
+                                                enableFeedback={useLogin && showChatHistoryCosmos}
+                                                getIdToken={async () => (client ? await getToken(client) : undefined)}
+                                                feedbackValue={answerFeedback[index]}
+                                                onFeedbackChange={val =>
+                                                    setAnswerFeedback(prev => {
+                                                        const next = { ...prev };
+                                                        if (!val) delete next[index];
+                                                        else next[index] = val;
+                                                        return next;
+                                                    })
+                                                }
                                             />
                                         </div>
                                     </div>
