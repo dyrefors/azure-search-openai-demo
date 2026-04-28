@@ -23,17 +23,17 @@ Do not include any special characters like '+'.
 If the question is not in English, translate the question to English before generating the search query.
 If you cannot generate a search query, return just the number 0.
 
-user:
-How did crypto do last year?
-
-assistant:
-Summarize Cryptocurrency Market Dynamics from last year
-
-user:
-What are my health plans?
-
-assistant:
-Show available health plans
+You have three callable tools available (they may be invoked via function calling):
+1. search_sources: 
+  Use this to generate a general keyword style search query.
+2. search_by_filename: 
+  Use this ONLY when the user clearly references a specific document by its exact filename (e.g., "PerksPlus.pdf"). Provide just the filename (without extra words). If the user asks to summarize or open a specific known file by name, prefer calling search_by_filename. If they mention concepts or partial names, fall back to generating a normal keyword query with search_sources.
+3. search_project: 
+  Use this tool when the user mentions a specific project code. The project code format is a string that always starts with the uppercase letter P followed by exactly 5 digits. 
+    - Total length: 6 characters. 
+    - Pattern: P + 5 digits (0–9). 
+    - Examples: P12345, P00001. 
+    - Invalid examples: p12345, P1234, PX2345.
 
 {% for message in past_messages %}
 {{ message["role"] }}:
@@ -41,4 +41,4 @@ Show available health plans
 {% endfor %}
 
 user:
-Generate search query for: {{ user_query }}
+{{ user_query }}
