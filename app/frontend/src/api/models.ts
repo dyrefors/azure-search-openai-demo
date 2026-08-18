@@ -12,9 +12,8 @@ export type ChatAppRequestOverrides = {
     reasoning_effort?: string;
     include_category?: string;
     exclude_category?: string;
-    seed?: number;
     top?: number;
-    results_merge_strategy?: string;
+    retrieval_reasoning_effort?: string;
     temperature?: number;
     minimum_search_score?: number;
     minimum_reranker_score?: number;
@@ -22,14 +21,14 @@ export type ChatAppRequestOverrides = {
     prompt_template_prefix?: string;
     prompt_template_suffix?: string;
     suggest_followup_questions?: boolean;
-    use_oid_security_filter?: boolean;
-    use_groups_security_filter?: boolean;
     send_text_sources: boolean;
     send_image_sources: boolean;
     search_text_embeddings: boolean;
     search_image_embeddings: boolean;
     language: string;
-    use_agentic_retrieval: boolean;
+    use_agentic_knowledgebase: boolean;
+    use_web_source?: boolean;
+    use_sharepoint_source?: boolean;
 };
 
 export type ResponseMessage = {
@@ -43,29 +42,55 @@ export type Thoughts = {
     props?: { [key: string]: any };
 };
 
+export type ActivityDetail = {
+    id?: number;
+    number?: number;
+    type?: string;
+    label?: string;
+    source?: string;
+    query?: string;
+};
+
+export type ExternalResultMetadata = {
+    id?: string;
+    title?: string;
+    url?: string;
+    snippet?: string;
+    activity?: ActivityDetail;
+};
+
+export type CitationActivityDetail = {
+    id?: string;
+    number?: number;
+    type?: string;
+    source?: string;
+    query?: string;
+};
+
 export type DataPoints = {
     text: string[];
     images: string[];
     citations: string[];
+    citation_activity_details?: Record<string, CitationActivityDetail>;
+    external_results_metadata?: ExternalResultMetadata[];
 };
 
 export type ResponseContext = {
     data_points: DataPoints;
     followup_questions: string[] | null;
     thoughts: Thoughts[];
+    answer?: string;
 };
 
 export type ChatAppResponseOrError = {
-    message: ResponseMessage;
-    delta: ResponseMessage;
-    context: ResponseContext;
-    session_state: any;
+    output_text?: string;
+    context?: ResponseContext;
+    session_state?: any;
     error?: string;
 };
 
 export type ChatAppResponse = {
-    message: ResponseMessage;
-    delta: ResponseMessage;
+    output_text: string;
     context: ResponseContext;
     session_state: any;
 };
@@ -82,6 +107,8 @@ export type ChatAppRequest = {
 
 export type Config = {
     defaultReasoningEffort: string;
+    reasoningEffortOptions: string[];
+    defaultRetrievalReasoningEffort: string;
     showMultimodalOptions: boolean;
     showSemanticRankerOption: boolean;
     showQueryRewritingOption: boolean;
@@ -100,6 +127,8 @@ export type Config = {
     ragSearchImageEmbeddings: boolean;
     ragSendTextSources: boolean;
     ragSendImageSources: boolean;
+    webSourceEnabled: boolean;
+    sharepointSourceEnabled: boolean;
 };
 
 export type SimpleAPIResponse = {

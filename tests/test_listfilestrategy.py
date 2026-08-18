@@ -6,12 +6,9 @@ import tempfile
 import pytest
 
 from prepdocslib.listfilestrategy import (
-    ADLSGen2ListFileStrategy,
     File,
     LocalListFileStrategy,
 )
-
-from .mocks import MockAzureCredential
 
 
 def test_file_filename():
@@ -84,6 +81,8 @@ async def test_locallistfilestrategy():
         assert files[0].filename() == "a.pdf"
         assert files[1].filename() == "b.pdf"
         assert files[2].filename() == "c.pdf"
+        for file in files:
+            file.close()
 
 
 @pytest.mark.asyncio
@@ -112,6 +111,8 @@ async def test_locallistfilestrategy_nesteddir():
         assert files[0].filename() == "a.pdf"
         assert files[1].filename() == "b.pdf"
         assert files[2].filename() == "c.pdf"
+        for file in files:
+            file.close()
 
 
 def test_locallistfilestrategy_checkmd5():
@@ -132,16 +133,15 @@ def test_locallistfilestrategy_checkmd5():
 
 
 @pytest.mark.asyncio
-async def test_read_adls_gen2_files(monkeypatch, mock_data_lake_service_client):
-    adlsgen2_list_strategy = ADLSGen2ListFileStrategy(
-        data_lake_storage_account="a", data_lake_filesystem="a", data_lake_path="a", credential=MockAzureCredential()
-    )
+async def test_locallistfilestrategy_global():
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        for filename in ["a.pdf", "b.pdf", "c.pdf"]:
+            with open(os.path.join(tmpdirname, filename), "w") as f:
+                f.write("test")
+        local_list_strategy = LocalListFileStrategy(path_pattern=f"{tmpdirname}/*", enable_global_documents=True)
 
-    files = [file async for file in adlsgen2_list_strategy.list()]
-    assert len(files) == 3
-    assert files[0].filename() == "a.txt"
-    assert files[0].acls == {"oids": ["A-USER-ID"], "groups": ["A-GROUP-ID"]}
-    assert files[1].filename() == "b.txt"
-    assert files[1].acls == {"oids": ["B-USER-ID"], "groups": ["B-GROUP-ID"]}
-    assert files[2].filename() == "c.txt"
-    assert files[2].acls == {"oids": ["C-USER-ID"], "groups": ["C-GROUP-ID"]}
+        files = [file async for file in local_list_strategy.list()]
+        assert len(files) == 3
+        for file in files:
+            assert file.acls == {"oids": ["all"], "groups": ["all"]}
+            file.close()

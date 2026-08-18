@@ -1,12 +1,12 @@
 # RAG chat: Support for multimodal documents
 
-This repository includes an optional feature that uses multimodal embedding models and multimodal chat completion models
+This repository includes an optional feature that uses multimodal embedding models and multimodal LLMs
 to better handle documents that contain images, such as financial reports with charts and graphs.
 
 With this feature enabled, the data ingestion process will extract images from your documents
 using Document Intelligence, store the images in Azure Blob Storage, vectorize the images using the Azure AI Vision service, and store the image embeddings in the Azure AI Search index.
 
-During the RAG flow, the app will perform a multi-vector query using both text and image embeddings, and then send any images associated with the retrieved document chunks to the chat completion model for answering questions. This feature assumes that your chat completion model supports multimodal inputs, such as `gpt-4o`, `gpt-4o-mini`, `gpt-5`, or `gpt-5-mini`.
+During the RAG flow, the app will perform a multi-vector query using both text and image embeddings, and then send any images associated with the retrieved document chunks to the LLM for answering questions. This feature assumes that the deployed model supports multimodal inputs, such as `gpt-4o`, `gpt-4o-mini`, `gpt-5`, or `gpt-5-mini`.
 
 With this feature enabled, the following changes are made:
 
@@ -17,7 +17,7 @@ With this feature enabled, the following changes are made:
 
 ## Prerequisites
 
-* The use of a chat completion model that supports multimodal inputs. The default model for the repository is currently `gpt-4.1-mini`, which does support multimodal inputs. The `gpt-4o-mini` technically supports multimodal inputs, but due to how image tokens are calculated, you need a much higher deployment capacity to use it effectively. Please try `gpt-4.1-mini` first, and experiment with other models later.
+* The use of a model that supports multimodal inputs. The default model for the repository is currently `gpt-5.4-mini`, which does support multimodal inputs. If you change the model, make sure the new model also supports multimodal inputs (e.g. `gpt-5.2`, `gpt-5-mini`, `gpt-4.1-mini`).
 
 ## Deployment
 
@@ -92,7 +92,7 @@ Many developers may find that they can turn off image embeddings and still have 
 
 ### Control LLM input sources
 
-Set variables to control whether the chat completion model will use text inputs, image inputs, or both:
+Set variables to control whether the LLM will use text inputs, image inputs, or both:
 
 To disable text inputs, run:
 
@@ -112,5 +112,4 @@ and you may still see good results with just text inputs, since the inputs conta
 
 ## Compatibility
 
-* This feature is **not** compatible with [integrated vectorization](./deploy_features.md#enabling-integrated-vectorization), as the currently configured built-in skills do not process images or store image embeddings. Azure AI Search does now offer built-in skills for multimodal support, as demonstrated in [azure-ai-search-multimodal-sample](https://github.com/Azure-Samples/azure-ai-search-multimodal-sample), but we have not integrated them in this project. Instead, we are working on making a custom skill based off the data ingestion code in this repository, and hosting that skill on Azure Functions. Stay tuned to the releases to find out when that's available.
 * This feature *is* compatible with the [reasoning models](./reasoning.md) feature, as long as you use a model that [supports image inputs](https://learn.microsoft.com/azure/ai-services/openai/how-to/reasoning?tabs=python-secure%2Cpy#api--feature-support).

@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import IO, Any, Optional, TypedDict, Union
+from typing import IO, Any, Optional, TypedDict, cast
 from urllib.parse import unquote
 
 from azure.core.credentials_async import AsyncTokenCredential
@@ -101,7 +101,7 @@ class BaseBlobManager:
         raise NotImplementedError("Subclasses must implement this method")
 
     async def download_blob(
-        self, blob_path: str, user_oid: Optional[str] = None
+        self, blob_path: str, user_oid: Optional[str] = None, container: Optional[str] = None
     ) -> Optional[tuple[bytes, BlobProperties]]:
         """
         Downloads a blob from Azure Storage.
@@ -110,6 +110,7 @@ class BaseBlobManager:
         Args:
             blob_path: The path to the blob in the storage
             user_oid: The user's object ID (optional)
+            container: Optional container name override (defaults to the manager's configured container)
 
         Returns:
             Optional[tuple[bytes, BlobProperties]]:
@@ -169,7 +170,7 @@ class AdlsBlobManager(BaseBlobManager):
             await directory_client.set_access_control(owner=user_oid)
         return directory_client
 
-    async def upload_blob(self, file: Union[File, IO], filename: str, user_oid: str) -> str:
+    async def upload_blob(self, file: File | IO, filename: str, user_oid: str) -> str:
         """
         Uploads a file directly to the user's directory in ADLS (no subdirectory).
 
@@ -255,7 +256,7 @@ class AdlsBlobManager(BaseBlobManager):
         return unquote(file_client.url)
 
     async def download_blob(
-        self, blob_path: str, user_oid: Optional[str] = None
+        self, blob_path: str, user_oid: Optional[str] = None, container: Optional[str] = None
     ) -> Optional[tuple[bytes, BlobProperties]]:
         """
         Downloads a blob from Azure Data Lake Storage.
@@ -263,6 +264,7 @@ class AdlsBlobManager(BaseBlobManager):
         Args:
             blob_path: The path to the blob in the format {user_oid}/{document_name}/images/{image_name}
             user_oid: The user's object ID
+            container: Optional filesystem name override (ignored; this manager uses its configured filesystem)
 
         Returns:
             Optional[tuple[bytes, BlobProperties]]:
@@ -393,7 +395,7 @@ class BlobManager(BaseBlobManager):
         self,
         endpoint: str,
         container: str,
-        credential: Union[AsyncTokenCredential, str],
+        credential: AsyncTokenCredential | str,
         image_container: Optional[str] = None,
         account: Optional[str] = None,
         resource_group: Optional[str] = None,
@@ -424,13 +426,16 @@ class BlobManager(BaseBlobManager):
             await container_client.create_container()
 
         # Re-open and upload the original file
-        if file.url is None:
+        # URL may be a path to a local file or already set to a blob URL
+        if file.url is None or os.path.exists(file.url):
             with open(file.content.name, "rb") as reopened_file:
                 blob_name = self.blob_name_from_file_name(file.content.name)
                 logger.info("Uploading blob for document '%s'", blob_name)
                 blob_client = await container_client.upload_blob(blob_name, reopened_file, overwrite=True)
                 file.url = blob_client.url
 
+        if file.url is None:
+            raise ValueError("file.url must be set after upload")
         return unquote(file.url)
 
     async def upload_document_image(
@@ -449,7 +454,7 @@ class BlobManager(BaseBlobManager):
             raise ValueError(
                 "user_oid is not supported for BlobManager. Use AdlsBlobManager for user-specific operations."
             )
-        container_client = self.blob_service_client.get_container_client(self.container)
+        container_client = self.blob_service_client.get_container_client(self.image_container)
         if not await container_client.exists():
             await container_client.create_container()
         image_bytes = self.add_image_citation(image_bytes, document_filename, image_filename, image_page_num)
@@ -459,7 +464,7 @@ class BlobManager(BaseBlobManager):
         return blob_client.url
 
     async def download_blob(
-        self, blob_path: str, user_oid: Optional[str] = None
+        self, blob_path: str, user_oid: Optional[str] = None, container: Optional[str] = None
     ) -> Optional[tuple[bytes, BlobProperties]]:
         """
         Downloads a blob from Azure Blob Storage.
@@ -467,6 +472,7 @@ class BlobManager(BaseBlobManager):
         Args:
             blob_path: The path to the blob in the storage
             user_oid: Not used in BlobManager, but included for API compatibility
+            container: Optional container name override (defaults to self.container)
 
         Returns:
             Optional[tuple[bytes, BlobProperties]]:
@@ -480,7 +486,7 @@ class BlobManager(BaseBlobManager):
             raise ValueError(
                 "user_oid is not supported for BlobManager. Use AdlsBlobManager for user-specific operations."
             )
-        container_client = self.blob_service_client.get_container_client(self.container)
+        container_client = self.blob_service_client.get_container_client(container or self.container)
         if not await container_client.exists():
             return None
         if len(blob_path) == 0:
@@ -512,7 +518,7 @@ class BlobManager(BaseBlobManager):
                 }
             }
 
-            return content, properties
+            return cast(bytes, content), properties
         except ResourceNotFoundError:
             logger.warning("Blob not found: %s", blob_path)
             return None

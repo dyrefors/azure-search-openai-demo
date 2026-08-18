@@ -23,10 +23,10 @@
             "send_text_sources": true,
             "send_image_sources": true,
             "language": "en",
-            "use_agentic_retrieval": false,
+            "use_agentic_knowledgebase": false,
             "seed": 1
         }
     },
-    "target_response_answer_jmespath": "message.content",
+    "target_response_answer_jmespath": "output_text",
     "target_response_context_jmespath": "context.data_points.text"
 }

@@ -8,11 +8,15 @@ You should set these values before running `azd up`. Once you've set them, retur
 * [OpenAI resource](#openai-resource)
 * [Azure AI Search resource](#azure-ai-search-resource)
 * [Azure App Service Plan and App Service resources](#azure-app-service-plan-and-app-service-resources)
-* [Azure Application Insights and related resources](#azure-application-insights-and-related-resources)
 * [Azure AI Vision resources](#azure-ai-vision-resources)
 * [Azure Document Intelligence resource](#azure-document-intelligence-resource)
 * [Azure Speech resource](#azure-speech-resource)
-* [Other Azure resources](#other-azure-resources)
+* [Azure Storage Account](#azure-storage-account)
+
+> [!NOTE]
+> When you specify an existing resource, the Bicep templates will still attempt to re-provision or update the service. This means some service parameters may be overridden with the default values from the templates. If you need to preserve specific configurations, review the Bicep files in `infra/` and adjust the parameters accordingly.
+>
+> **RBAC considerations**: This project uses managed identity and RBAC role assignments for authentication between services. If your existing resources are in a different resource group than the main deployment, the RBAC role assignments may not be created correctly, and you may need to manually assign the required roles. For the simplest setup, we recommend keeping all resources in the same resource group.
 
 ## Resource group
 
@@ -23,13 +27,27 @@ You should set these values before running `azd up`. Once you've set them, retur
 
 ### Azure OpenAI
 
+> [!NOTE]
+> When this project provisions its own Azure OpenAI account, it now creates a **Microsoft
+> Foundry** account (`kind: 'AIServices'` with project management enabled) plus a Foundry
+> project, and deploys the models on that account. If you set `AZURE_OPENAI_SERVICE` below to
+> reuse an existing account (with `OPENAI_HOST` left as `azure`), the deployment still targets
+> that account by name: it reconciles the listed model deployments onto it, patches the account
+> to a Foundry (`AIServices`) account with project management enabled, and creates a Foundry
+> project inside it. If the existing account is a classic `kind: 'OpenAI'` account, this is
+> Microsoft's documented, non-destructive [in-place upgrade to Foundry](https://learn.microsoft.com/azure/foundry/how-to/upgrade-azure-openai)
+> — the existing endpoint, keys, and model deployments are preserved. To keep an existing
+> account completely untouched and manage its kind, networking, and deployments yourself, use
+> the fully bring-your-own path instead (`OPENAI_HOST=azure_custom` with `AZURE_OPENAI_CUSTOM_URL`),
+> which provisions no Foundry account or project.
+
 1. Run `azd env set AZURE_OPENAI_SERVICE {Name of existing OpenAI service}`
 1. Run `azd env set AZURE_OPENAI_RESOURCE_GROUP {Name of existing resource group that OpenAI service is provisioned to}`
 1. Run `azd env set AZURE_OPENAI_LOCATION {Location of existing OpenAI service}`
-1. Run `azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT {Name of existing chat deployment}`. Only needed if your chat deployment name is not the default 'gpt-4.1-mini'.
-1. Run `azd env set AZURE_OPENAI_CHATGPT_MODEL {Model name of existing chat deployment}`. Only needed if your chat model is not the default 'gpt-4.1-mini'.
-1. Run `azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION {Version string for existing chat deployment}`. Only needed if your chat deployment model version is not the default '2024-07-18'. You definitely need to change this if you changed the model.
-1. Run `azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_SKU {Name of SKU for existing chat deployment}`. Only needed if your chat deployment SKU is not the default 'Standard', like if it is 'GlobalStandard' instead.
+1. Run `azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT {Name of existing chat deployment}`. Only needed if your chat deployment name is not the default 'gpt-5.4-mini'.
+1. Run `azd env set AZURE_OPENAI_CHATGPT_MODEL {Model name of existing chat deployment}`. Only needed if your chat model is not the default 'gpt-5.4-mini'.
+1. Run `azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION {Version string for existing chat deployment}`. Only needed if your chat deployment model version is not the default '2026-03-17'. You definitely need to change this if you changed the model.
+1. Run `azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_SKU {Name of SKU for existing chat deployment}`. Only needed if your chat deployment SKU is not the default 'GlobalStandard'.
 1. Run `azd env set AZURE_OPENAI_EMB_DEPLOYMENT {Name of existing embedding deployment}`. Only needed if your embeddings deployment is not the default 'embedding'.
 1. Run `azd env set AZURE_OPENAI_EMB_MODEL_NAME {Model name of existing embedding deployment}`. Only needed if your embeddings model is not the default 'text-embedding-3-large'.
 1. Run `azd env set AZURE_OPENAI_EMB_DIMENSIONS {Dimensions for existing embedding deployment}`. Only needed if your embeddings model is not the default 'text-embedding-3-large'.
@@ -37,6 +55,9 @@ You should set these values before running `azd up`. Once you've set them, retur
 1. This project does *not* use keys when authenticating to Azure OpenAI. However, if your Azure OpenAI service must have key access enabled for some reason (like for use by other projects), then run `azd env set AZURE_OPENAI_DISABLE_KEYS false`. The default value is `true` so you should only run the command if you need key access.
 
 When you run `azd up` after and are prompted to select a value for `openAiResourceGroupLocation`, make sure to select the same location as the existing OpenAI resource group.
+
+> [!WARNING]
+> If using a different resource group, the following RBAC roles may not be assigned correctly: `Cognitive Services OpenAI User` for the backend and search service. You may need to manually assign these roles.
 
 ### Openai.com OpenAI
 
@@ -57,7 +78,7 @@ When you run `azd up` after and are prompted to select a value for `openAiResour
 1. Run `azd env set AZURE_SEARCH_SERVICE_RESOURCE_GROUP {Name of existing resource group with ACS service}`
 1. If that resource group is in a different location than the one you'll pick for the `azd up` step,
   then run `azd env set AZURE_SEARCH_SERVICE_LOCATION {Location of existing service}`
-1. If the search service's SKU is not standard, then run `azd env set AZURE_SEARCH_SERVICE_SKU {Name of SKU}`. If you specify the free tier, then your app will no longer be able to use semantic ranker. Be advised that [search SKUs cannot be changed](https://learn.microsoft.com/azure/search/search-sku-tier#tier-upgrade-or-downgrade). ([See other possible SKU values](https://learn.microsoft.com/azure/templates/microsoft.search/searchservices?pivots=deployment-language-bicep#sku))
+1. If the search service's SKU is not standard, then run `azd env set AZURE_SEARCH_SERVICE_SKU {Name of SKU}`. If you specify the free tier, then your app will no longer be able to use semantic ranker. You can [switch between Basic, S1, S2, and S3 tiers](https://learn.microsoft.com/azure/search/search-capacity-planning#change-your-pricing-tier), but you can't switch to or from Free, S3HD, L1, or L2. ([See other possible SKU values](https://learn.microsoft.com/azure/templates/microsoft.search/searchservices?pivots=deployment-language-bicep#sku))
 1. If you have an existing index that is set up with all the expected fields, then run `azd env set AZURE_SEARCH_INDEX {Name of existing index}`. Otherwise, the `azd up` command will create a new index.
 
 You can also customize the search service (new or existing) for non-English searches:
@@ -66,17 +87,17 @@ You can also customize the search service (new or existing) for non-English sear
 1. To turn off the spell checker, run `azd env set AZURE_SEARCH_QUERY_SPELLER none`. Consult [this table](https://learn.microsoft.com/rest/api/searchservice/preview-api/search-documents#queryLanguage) to determine if spell checker is supported for your query language.
 1. To configure the name of the analyzer to use for a searchable text field to a value other than "en.microsoft", run `azd env set AZURE_SEARCH_ANALYZER_NAME {Name of analyzer name}`. ([See other possible values](https://learn.microsoft.com/dotnet/api/microsoft.azure.search.models.field.analyzer?view=azure-dotnet-legacy&viewFallbackFrom=azure-dotnet))
 
+> [!WARNING]
+> If using a different resource group, the following RBAC roles may not be assigned correctly and may need to be manually assigned:
+>
+> * Backend identity: `Search Index Data Reader`, `Search Index Data Contributor`
+> * Signed-in user (`principalId`): `Search Index Data Reader`, `Search Index Data Contributor`, `Search Service Contributor`
+
 ## Azure App Service Plan and App Service resources
 
 1. Run `azd env set AZURE_APP_SERVICE_PLAN {Name of existing Azure App Service Plan}`
 1. Run `azd env set AZURE_APP_SERVICE {Name of existing Azure App Service}`.
 1. Run `azd env set AZURE_APP_SERVICE_SKU {SKU of Azure App Service, defaults to B1}`.
-
-## Azure Application Insights and related resources
-
-1. Run `azd env set AZURE_APPLICATION_INSIGHTS {Name of existing Azure App Insights}`.
-1. Run `azd env set AZURE_APPLICATION_INSIGHTS_DASHBOARD {Name of existing Azure App Insights Dashboard}`.
-1. Run `azd env set AZURE_LOG_ANALYTICS {Name of existing Azure Log Analytics Workspace Name}`.
 
 ## Azure AI Vision resources
 
@@ -84,6 +105,9 @@ You can also customize the search service (new or existing) for non-English sear
 1. Run `azd env set AZURE_VISION_RESOURCE_GROUP {Name of existing Azure AI Vision Resource Group Name}`
 1. Run `azd env set AZURE_VISION_LOCATION {Name of existing Azure AI Vision Location}`
 1. Run `azd env set AZURE_VISION_SKU {SKU of Azure AI Vision service, defaults to F0}`
+
+> [!WARNING]
+> If using a different resource group, the following RBAC roles may not be assigned correctly: `Cognitive Services User` for the backend and search service. You may need to manually assign these roles.
 
 ## Azure Document Intelligence resource
 
@@ -95,6 +119,9 @@ If your existing resource is in one of those regions, then you can re-use it by 
 1. Run `azd env set AZURE_DOCUMENTINTELLIGENCE_RESOURCE_GROUP {Name of resource group with existing service, defaults to main resource group}`
 1. Run `azd env set AZURE_DOCUMENTINTELLIGENCE_SKU {SKU of existing service, defaults to S0}`
 
+> [!WARNING]
+> If using a different resource group, the following RBAC roles may not be assigned correctly: `Cognitive Services User` for the backend (required for user upload feature). You may need to manually assign these roles.
+
 ## Azure Speech resource
 
 1. Run `azd env set AZURE_SPEECH_SERVICE {Name of existing Azure Speech service}`
@@ -103,6 +130,16 @@ If your existing resource is in one of those regions, then you can re-use it by 
   then run `azd env set AZURE_SPEECH_SERVICE_LOCATION {Location of existing service}`
 1. If the speech service's SKU is not "S0", then run `azd env set AZURE_SPEECH_SERVICE_SKU {Name of SKU}`.
 
-## Other Azure resources
+> [!WARNING]
+> If using a different resource group, the following RBAC roles may not be assigned correctly: `Cognitive Services Speech User` for the backend and user. You may need to manually assign these roles.
 
-You can also use existing Azure AI Storage Accounts. See `./infra/main.parameters.json` for list of environment variables to pass to `azd env set` to configure those existing resources.
+## Azure Storage Account
+
+1. Run `azd env set AZURE_STORAGE_ACCOUNT {Name of existing Azure Storage Account}`
+1. Run `azd env set AZURE_STORAGE_RESOURCE_GROUP {Name of existing resource group with storage account}`
+1. If that resource group is in a different location than the one you'll pick for the `azd up` step,
+  then run `azd env set AZURE_STORAGE_ACCOUNT_LOCATION {Location of existing storage account}`
+1. To change the storage SKU from the default `Standard_LRS`, run `azd env set AZURE_STORAGE_SKU {Name of SKU}`. For production, we recommend `Standard_ZRS` for improved resiliency.
+
+> [!WARNING]
+> If using a different resource group, the following RBAC roles may not be assigned correctly: `Storage Blob Data Reader`, `Storage Blob Data Contributor`, and `Storage Blob Data Owner` for the backend, user, and search service. You may need to manually assign these roles.

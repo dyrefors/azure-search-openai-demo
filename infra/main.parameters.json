@@ -20,6 +20,9 @@
     "openAiResourceGroupName": {
       "value": "${AZURE_OPENAI_RESOURCE_GROUP}"
     },
+    "foundryProjectName": {
+      "value": "${FOUNDRY_PROJECT_NAME}"
+    },
     "openAiLocation": {
       "value": "${AZURE_OPENAI_LOCATION}"
     },
@@ -84,7 +87,10 @@
       "value": "${AZURE_SEARCH_FIELD_NAME_EMBEDDING=embedding3}"
     },
     "defaultReasoningEffort": {
-      "value": "${AZURE_OPENAI_REASONING_EFFORT=medium}"
+      "value": "${AZURE_OPENAI_REASONING_EFFORT=low}"
+    },
+    "defaultRetrievalReasoningEffort": {
+      "value": "${AZURE_SEARCH_KNOWLEDGEBASE_RETRIEVAL_REASONING_EFFORT=minimal}"
     },
     "storageAccountName": {
       "value": "${AZURE_STORAGE_ACCOUNT}"
@@ -152,29 +158,26 @@
     "evalDeploymentCapacity": {
       "value": "${AZURE_OPENAI_EVAL_DEPLOYMENT_CAPACITY}"
     },
-    "searchAgentModelName": {
-      "value": "${AZURE_OPENAI_SEARCHAGENT_MODEL}"
+    "knowledgeBaseModelName": {
+      "value": "${AZURE_OPENAI_KNOWLEDGEBASE_MODEL}"
     },
-    "searchAgentModelVersion": {
-      "value": "${AZURE_OPENAI_SEARCHAGENT_MODEL_VERSION}"
+    "knowledgeBaseModelVersion": {
+      "value": "${AZURE_OPENAI_KNOWLEDGEBASE_MODEL_VERSION}"
     },
-    "searchAgentDeploymentName": {
-      "value": "${AZURE_OPENAI_SEARCHAGENT_DEPLOYMENT}"
+    "knowledgeBaseDeploymentName": {
+      "value": "${AZURE_OPENAI_KNOWLEDGEBASE_DEPLOYMENT}"
     },
-    "searchAgentDeploymentSkuName": {
-      "value": "${AZURE_OPENAI_SEARCHAGENT_DEPLOYMENT_SKU}"
+    "knowledgeBaseDeploymentSkuName": {
+      "value": "${AZURE_OPENAI_KNOWLEDGEBASE_DEPLOYMENT_SKU}"
     },
-    "searchAgentDeploymentCapacity": {
-      "value": "${AZURE_OPENAI_SEARCHAGENT_DEPLOYMENT_CAPACITY}"
+    "knowledgeBaseDeploymentCapacity": {
+      "value": "${AZURE_OPENAI_KNOWLEDGEBASE_DEPLOYMENT_CAPACITY}"
     },
     "openAiHost": {
       "value": "${OPENAI_HOST=azure}"
     },
     "azureOpenAiCustomUrl": {
       "value": "${AZURE_OPENAI_CUSTOM_URL}"
-    },
-    "azureOpenAiApiVersion": {
-      "value": "${AZURE_OPENAI_API_VERSION}"
     },
     "azureOpenAiApiKey": {
       "value": "${AZURE_OPENAI_API_KEY_OVERRIDE}"
@@ -206,8 +209,29 @@
     "useMultimodal": {
       "value": "${USE_MULTIMODAL=false}"
     },
+    "csvMaxPageChars": {
+      "value": "${CSV_MAX_PAGE_CHARS=0}"
+    },
     "useEval": {
       "value": "${USE_EVAL=false}"
+    },
+    "restoreCognitiveServices": {
+      "value": "${RESTORE_COGNITIVE_SERVICES=false}"
+    },
+    "useCloudIngestion": {
+      "value": "${USE_CLOUD_INGESTION=false}"
+    },
+    "useCloudIngestionAcls": {
+      "value": "${USE_CLOUD_INGESTION_ACLS=false}"
+    },
+    "useExistingAdlsStorage": {
+      "value": "${USE_EXISTING_ADLS_STORAGE=false}"
+    },
+    "adlsStorageAccountName": {
+      "value": "${AZURE_ADLS_GEN2_STORAGE_ACCOUNT}"
+    },
+    "adlsStorageResourceGroupName": {
+      "value": "${AZURE_ADLS_GEN2_STORAGE_RESOURCE_GROUP}"
     },
     "enableLanguagePicker": {
       "value": "${ENABLE_LANGUAGE_PICKER=false}"
@@ -332,11 +356,8 @@
     "useMediaDescriberAzureCU": {
       "value": "${USE_MEDIA_DESCRIBER_AZURE_CU=false}"
     },
-    "useAiProject": {
-      "value": "${USE_AI_PROJECT=false}"
-    },
-    "useAgenticRetrieval": {
-      "value": "${USE_AGENTIC_RETRIEVAL=false}"
+    "useAgenticKnowledgeBase": {
+      "value": "${USE_AGENTIC_KNOWLEDGEBASE=false}"
     },
     "ragSearchTextEmbeddings": {
       "value": "${RAG_SEARCH_TEXT_EMBEDDINGS=true}"
@@ -349,6 +370,12 @@
     },
     "ragSendImageSources": {
       "value": "${RAG_SEND_IMAGE_SOURCES=true}"
+    },
+    "useWebSource": {
+      "value": "${USE_WEB_SOURCE=false}"
+    },
+    "useSharePointSource": {
+      "value": "${USE_SHAREPOINT_SOURCE=false}"
     }
   }
 }

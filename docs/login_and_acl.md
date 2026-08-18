@@ -32,16 +32,19 @@ The [azure-search-openai-demo](/) project can set up a full RAG chat app on Azur
     - [Server App](#server-app)
     - [Client App](#client-app)
     - [Configure Server App Known Client Applications](#configure-server-app-known-client-applications)
-    - [Testing](#testing)
-    - [Programmatic Access With Authentication](#programmatic-access-with-authentication)
-  - [Troubleshooting](#troubleshooting)
+  - [Troubleshooting Entra setup](#troubleshooting-entra-setup)
 - [Adding data with document level access control](#adding-data-with-document-level-access-control)
+  - [Cloud ingestion with Azure Data Lake Storage Gen2](#cloud-ingestion-with-azure-data-lake-storage-gen2) (Recommended)
+    - [Using your own ADLS Gen2 storage account](#using-your-own-adls-gen2-storage-account)
+    - [Verifying ACL filtering](#verifying-acl-filtering)
   - [Using the Add Documents API](#using-the-add-documents-api)
-  - [Azure Data Lake Storage Gen2 and prepdocs](#azure-data-lake-storage-gen2-setup)
+    - [Enabling global access on documents without access control](#enabling-global-access-on-documents-without-access-control)
+- [Migrate to built-in document access control](#migrate-to-built-in-document-access-control)
+- [Programmatic access with authentication](#programmatic-access-with-authentication)
 - [Environment variables reference](#environment-variables-reference)
   - [Authentication behavior by environment](#authentication-behavior-by-environment)
 
-This guide demonstrates how to add an optional login and document level access control system to the sample. This system can be used to restrict access to indexed data to specific users based on what [Microsoft Entra groups](https://learn.microsoft.com/entra/fundamentals/how-to-manage-groups) they are a part of, or their [user object id](https://learn.microsoft.com/partner-center/find-ids-and-domain-names#find-the-user-object-id).
+This guide demonstrates how to add an optional login and document level access control system to the sample. This system can be used to restrict access to indexed data to specific users based on what [Microsoft Entra groups](https://learn.microsoft.com/entra/fundamentals/how-to-manage-groups) they are a part of, or their [user object id](https://learn.microsoft.com/partner-center/find-ids-and-domain-names#find-the-user-object-id). This system utilizes the [built-in document access and control from Azure AI Search](https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement).
 
 ![AppLoginArchitecture](/docs/images/applogincomponents.png)
 
@@ -66,18 +69,6 @@ The easiest way to setup the two apps is to use the `azd` CLI. We've written scr
     azd env set AZURE_USE_AUTHENTICATION true
     ```
 
-1. **Enable access control on your search index**
-
-    - **If the index does not exist yet:**
-      Run the `prepdocs` script.
-
-    - **If the index already exists:**
-      Execute this command to enable ACLs:
-
-      ```shell
-      python ./scripts/manageacl.py --acl-action enable_acls
-      ```
-
 1. (Optional) **Enforce access control**
   To ensure that the app restricts search results to only documents that the user has access to, run the following command:
 
@@ -86,14 +77,14 @@ The easiest way to setup the two apps is to use the `azd` CLI. We've written scr
     ```
 
 1. (Optional) **Allow global document access**
-  To allow users to search on documents that have no access controls assigned, even when access control is required, run the following command:
+  To allow upload of documents that have global access when there are no document-specific access controls assigned, run the following command:
 
     ```shell
     azd env set AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS true
     ```
 
 1. (Optional) **Allow unauthenticated access**
-  To allow unauthenticated users to use the app, even when access control is enforced, run the following command:
+  To allow unauthenticated users to use the app, run the following command:
 
     ```shell
     azd env set AZURE_ENABLE_UNAUTHENTICATED_ACCESS true
@@ -114,6 +105,16 @@ The easiest way to setup the two apps is to use the `azd` CLI. We've written scr
     ```shell
     azd auth login --tenant-id <YOUR-TENANT-ID>
     ```
+
+1. **Enable access control on your search index (if it already exists)**
+
+    If your search index already exists, you need to enable access control on it:
+
+    ```shell
+    python ./scripts/manageacl.py --acl-action enable_acls
+    ```
+
+    If your index does not exist yet, access control will be automatically enabled when the index is created during deployment.
 
 1. **Deploy the app**
   Finally, run the following command to provision and deploy the app:
@@ -146,10 +147,16 @@ The following instructions explain how to setup the two apps using the Azure Por
   - Select one of the available key durations.
   - The generated key value will be displayed after you select **Add**.
   - Copy the generated key value and run the following `azd` command to save this ID: `azd env set AZURE_SERVER_APP_SECRET <generated key value>`.
-- Select **API Permissions** in the left hand menu. By default, the [delegated `User.Read`](https://learn.microsoft.com/graph/permissions-reference#user-permissions) permission should be present. This permission is required to read the signed-in user's profile to get the security information used for document level access control. If this permission is not present, it needs to be added to the application.
+- Select **API Permissions** in the left hand menu. By default, the [delegated `User.Read`](https://learn.microsoft.com/graph/permissions-reference#user-permissions) permission should be present. This permission is required to read the signed-in user's profile.
   - Select **Add a permission**, and then **Microsoft Graph**.
   - Select **Delegated permissions**.
   - Search for and and select `User.Read`.
+  - Select **Add permissions**.
+- Select **API Permissions** in the left hand menu. The server app will use the `user_impersonation` permission from Azure AI Search to issue a token for security filtering on behalf of the logged in user.
+  - Select **Add a permission**, and then **APIs my organization uses**.
+  - Search for and select **Azure Cognitive Search**.
+  - Select **Delegated permissions**.
+  - Search for and and select `user_impersonation`.
   - Select **Add permissions**.
 - Select **Expose an API** in the left hand menu. The server app works by using the [On Behalf Of Flow](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow#protocol-diagram), which requires the server app to expose at least 1 API.
   - The application must define a URI to expose APIs. Select **Add** next to **Application ID URI**.
@@ -164,11 +171,6 @@ The following instructions explain how to setup the two apps using the Azure Por
     - For **User consent description**, type **Allow the app to access Azure Search OpenAI Chat API on your behalf**.
     - Leave **State** set to **Enabled**.
     - Select **Add scope** at the bottom to save the scope.
-- (Optional) Enable group claims. Include which Microsoft Entra groups the user is part of as part of the login in the [optional claims](https://learn.microsoft.com/entra/identity-platform/optional-claims). The groups are used for [optional security filtering](https://learn.microsoft.com/azure/search/search-security-trimming-for-azure-search) in the search results.
-  - In the left hand menu, select **Token configuration**
-  - Under **Optional claims**, select **Add groups claim**
-  - Select which [group types](https://learn.microsoft.com/entra/identity/hybrid/connect/how-to-connect-fed-group-claims) to include in the claim. Note that a [overage claim](https://learn.microsoft.com/entra/identity-platform/access-token-claims-reference#groups-overage-claim) will be emitted if the user is part of too many groups. In this case, the API server will use the [Microsoft Graph](https://learn.microsoft.com/graph/api/user-list-memberof?view=graph-rest-*0&tabs=http) to list the groups the user is part of instead of relying on the groups in the claim.
-  - Select **Add** to save your changes
 
 #### Client App
 
@@ -210,30 +212,7 @@ Consent from the user must be obtained for use of the client and server app. The
 - Replace `"knownClientApplications": []` with `"knownClientApplications": ["<client application id>"]`
 - Select **Save**
 
-#### Testing
-
-If you are running setup for the first time, ensure you have run `azd env set AZURE_ADLS_GEN2_STORAGE_ACCOUNT <YOUR-STORAGE_ACCOUNT>` before running `azd up`. If you do not set this environment variable, your index will not be initialized with access control support when `prepdocs` is run for the first time. To manually enable access control in your index, use the [manual setup script](#azure-data-lake-storage-gen2-setup).
-
-Ensure you run `azd env set AZURE_USE_AUTHENTICATION` to enable the login UI once you have setup the two Microsoft Entra apps before you deploy or run the application. The login UI will not appear unless all [required environment variables](#environment-variables-reference) have been setup.
-
-In both the chat and ask a question modes, under **Developer settings** optional **Use oid security filter** and **Use groups security filter** checkboxes will appear. The oid (User ID) filter maps to the `oids` field in the search index and the groups (Group ID) filter maps to the `groups` field in the search index. If `AZURE_ENFORCE_ACCESS_CONTROL` has been set, then both the **Use oid security filter** and **Use groups security filter** options are always enabled and cannot be disabled.
-
-#### Programmatic Access with Authentication
-
-If you want to use the chat endpoint without the UI and still use authentication, you must disable [App Service built-in authentication](https://learn.microsoft.com/azure/app-service/overview-authentication-authorization) and use only the app's MSAL-based authentication flow. Ensure the `AZURE_DISABLE_APP_SERVICES_AUTHENTICATION` environment variable is set before deploying.
-
-Get an access token that can be used for calling the chat API using the following code:
-
-```python
-from azure.identity import DefaultAzureCredential
-import os
-
-token = DefaultAzureCredential().get_token(f"api://{os.environ['AZURE_SERVER_APP_ID']}/access_as_user", tenant_id=os.getenv('AZURE_AUTH_TENANT_ID', os.getenv('AZURE_TENANT_ID')))
-
-print(token.token)
-```
-
-### Troubleshooting
+### Troubleshooting Entra setup
 
 - If your primary tenant restricts the ability to create Entra applications, you'll need to use a separate tenant to create the Entra applications. You can create a new tenant by following [these instructions](https://learn.microsoft.com/entra/identity-platform/quickstart-create-new-tenant). Then run `azd env set AZURE_AUTH_TENANT_ID <YOUR-AUTH-TENANT-ID>` before running `azd up`.
 - If any Entra apps need to be recreated, you can avoid redeploying the app by [changing the app settings in the portal](https://learn.microsoft.com/azure/app-service/configure-common?tabs=portal#configure-app-settings). Any of the [required environment variables](#environment-variables-reference) can be changed. Once the environment variables have been changed, restart the web app.
@@ -245,8 +224,153 @@ print(token.token)
 
 The sample supports 2 main strategies for adding data with document level access control.
 
+- [Using cloud ingestion with Azure Data Lake Storage Gen2](#cloud-ingestion-with-azure-data-lake-storage-gen2) (Recommended). Uses Azure Functions and an Azure AI Search indexer to automatically extract ACLs from files stored in Azure Data Lake Storage Gen2 and index them with document-level access control.
 - [Using the Add Documents API](#using-the-add-documents-api). Sample scripts are provided which use the Azure AI Search Service Add Documents API to directly manage access control information on _existing documents_ in the index.
-- [Using prepdocs and Azure Data Lake Storage Gen 2](#azure-data-lake-storage-gen2-setup). Sample scripts are provided which set up an [Azure Data Lake Storage Gen 2](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) account, set the [access control information](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control) on files and folders stored there, and ingest those documents into the search index with their  access control information.
+
+> [!NOTE]
+> The previous "ADLS local file strategy" (using `prepdocs` directly against Azure Data Lake Storage) has been deprecated and removed. If you were using that approach in earlier versions of this sample, you must migrate to the cloud ingestion flow described in [Cloud ingestion with Azure Data Lake Storage Gen2](#cloud-ingestion-with-azure-data-lake-storage-gen2), which runs ingestion in Azure Functions and the Azure AI Search indexer instead of on the client machine.
+
+### Cloud ingestion with Azure Data Lake Storage Gen2
+
+The recommended approach for document-level access control is to use cloud ingestion with Azure Data Lake Storage Gen2. This approach uses Azure Functions to process documents and an Azure AI Search indexer to automatically extract ACLs from files and index them with document-level access control.
+
+#### How it works
+
+1. Documents are stored in an [Azure Data Lake Storage Gen2](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) account with [hierarchical namespace enabled](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-namespace).
+2. [Access Control Lists (ACLs)](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control) are set on files and folders to control which users and groups can access each document.
+3. An Azure AI Search indexer monitors the storage account for new or updated files.
+4. When files are detected, custom Azure Function skills process the documents:
+   - **Document Extractor**: Downloads and parses the document, extracting ACLs directly from Azure Data Lake Storage Gen2.
+   - **Figure Processor**: Processes images and figures in the document.
+   - **Text Processor**: Chunks the text and generates embeddings.
+5. The extracted ACLs (user IDs and group IDs) are stored in the search index alongside the document content.
+
+#### ACL handling
+
+The document extractor parses the POSIX-style ACL string from ADLS Gen2 (e.g., `user::rwx,user:oid:r--,group::r-x,group:gid:r--,other::---`) and extracts:
+
+- **User IDs (oids)**: User object IDs with read permission (`user:<oid>:r--` or `user:<oid>:r-x`)
+- **Group IDs (groups)**: Group object IDs with read permission (`group:<gid>:r--` or `group:<gid>:r-x`)
+- **Global access**: If the "other" ACL entry has read permission (`other::r--` or `other::r-x`) **and** `AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS` is set to `true`, the document is treated as globally accessible and indexed with `oids: ["all"]` and `groups: ["all"]`. This allows any authenticated user to access the document. Both conditions must be met - the ACL permission alone is not sufficient. See [Understanding access control in ADLS Gen2](https://github.com/hurtn/datalake-on-ADLS/blob/master/Understanding%20access%20control%20and%20data%20lake%20configurations%20in%20ADLS%20Gen2.md#option-2-the-other-acl-entry) for more details about the "other" ACL entry.
+
+> **Note:** The document extractor only reads ACLs directly from each file - it does not consider directory-level ACL inheritance or propagation. If a user or group has read permission on the file's ACL, they will be granted access to that document in Azure AI Search. Make sure ACLs are set explicitly on each file, not just on parent directories.
+
+#### Setup
+
+1. **Enable cloud ingestion and ACLs**
+
+   ```shell
+   azd env set USE_CLOUD_INGESTION true
+   azd env set USE_CLOUD_INGESTION_ACLS true
+   azd env set AZURE_USE_AUTHENTICATION true
+   azd env set AZURE_ENFORCE_ACCESS_CONTROL true
+   ```
+
+2. **Configure the storage account**
+
+   When `USE_CLOUD_INGESTION_ACLS` is enabled, a separate Azure Data Lake Storage Gen2 storage account with hierarchical namespace is automatically provisioned. This is required for ACL support.
+
+3. **Deploy the application**
+
+   ```shell
+   azd up
+   ```
+
+   This provisions the Azure Functions (document-extractor, figure-processor, text-processor), creates an ADLS Gen2 storage account for documents with ACLs, configures the search indexer with ADLS Gen2 data source type, and sets up managed identity authentication.
+
+4. **Upload documents with ACLs**
+
+   Upload documents to the provisioned ADLS storage account (`AZURE_ADLS_STORAGE_ACCOUNT`) and set ACLs on them.
+
+   You can use the [adlsgen2setup.py](/scripts/adlsgen2setup.py) script to upload sample data with ACLs:
+
+   ```shell
+   python scripts/adlsgen2setup.py './data/*' --data-access-control './scripts/sampleacls.json' -v
+   ```
+
+   Alternatively, use [Azure Storage Explorer](https://azure.microsoft.com/products/storage/storage-explorer/) or the Azure portal to upload files and manage ACLs.
+
+5. **Trigger ingestion**
+
+   Run the cloud ingestion setup script to trigger the indexer:
+
+   ```shell
+   ./scripts/setup_cloud_ingestion.sh
+   ```
+
+   Or trigger the indexer directly from the Azure portal.
+
+#### Enabling global access for specific documents
+
+To make specific documents accessible to all authenticated users (global access), you must configure the following:
+
+1. **Set the environment variable**: Enable global document access support:
+
+   ```shell
+   azd env set AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS true
+   azd up
+   ```
+
+2. **Set the "other" ACL on the file**: In ADLS Gen2, the "other" ACL entry controls access for any authenticated user who doesn't match a specific user or group ACL. Grant read permission to "other" on files that should be globally accessible. See [Set ACLs in Azure Data Lake Storage Gen2](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-acl-azure-portal) for instructions.
+
+3. **Reset and rerun the indexer**: If documents have already been indexed, reset the indexer to update the permissions on existing documents. Reset the indexer from the Azure portal or by running the setup script again.
+
+When all conditions are met, the document extractor will index the document with `oids: ["all"]` and `groups: ["all"]`, making it accessible in Azure AI Search to any authenticated user. See [Azure AI Search Document-level permissions](https://learn.microsoft.com/azure/search/search-index-access-control-lists-and-rbac-push-api#special-acl-values-all-and-none) for more details about the special `["all"]` value.
+
+#### Using your own ADLS Gen2 storage account
+
+If you already have an Azure Data Lake Storage Gen2 account with documents and ACLs configured, you can use it instead of having the deployment provision a new one.
+
+1. **Enable cloud ingestion with existing ADLS**
+
+   ```shell
+   azd env set USE_CLOUD_INGESTION true
+   azd env set USE_CLOUD_INGESTION_ACLS true
+   azd env set USE_EXISTING_ADLS_STORAGE true
+   azd env set AZURE_ADLS_GEN2_STORAGE_ACCOUNT <your-existing-adls-account-name>
+   ```
+
+   If your ADLS account is in a different resource group than the one being provisioned, also set:
+
+   ```shell
+   azd env set AZURE_ADLS_GEN2_STORAGE_RESOURCE_GROUP <your-adls-resource-group>
+   ```
+
+   If not specified, the resource group defaults to the main resource group being provisioned.
+
+2. **Deploy the application**
+
+   ```shell
+   azd up
+   ```
+
+   The deployment will automatically assign the necessary RBAC roles on your ADLS storage account:
+   - **Storage Blob Data Reader**: Granted to Azure AI Search and Azure Functions identities
+   - **Storage Blob Data Owner**: Granted to your user account (for managing ACLs)
+
+   The search indexer will be configured to use your existing ADLS account as the data source.
+
+#### Verifying ACL filtering
+
+To verify that ACL filtering is working correctly on your search index, use the [verify_search_index_acls.py](/scripts/verify_search_index_acls.py) script.
+
+This script tests three different search scenarios:
+
+1. **Search without ACL headers/tokens**: Returns only documents accessible without user credentials (documents without ACL restrictions or with global access `["all"]`)
+2. **Search with user token**: Uses `x-ms-query-source-authorization` header to filter results based on the current user's permissions
+3. **Search with elevated read**: Uses `x-ms-enable-elevated-read` header to bypass ACL filtering and show all documents with their `oids` and `groups` fields (useful for debugging). This step requires the "Search Index Data Contributor" role, which is now automatically assigned to the developer that runs `azd up`.
+
+Run the script after deploying and ingesting documents:
+
+```shell
+python scripts/verify_search_index_acls.py
+```
+
+Compare the results between the three scenarios to verify that:
+
+- Documents with ACLs are being filtered correctly based on user permissions
+- The `oids` and `groups` fields are populated correctly for each document
+- Global access documents (with `["all"]` values) are accessible to all authenticated users
 
 ### Using the Add Documents API
 
@@ -299,41 +423,35 @@ The script supports the following commands. All commands support `-v` for verbos
   python ./scripts/manageacl.py -v --acl-type oids --acl-action remove --acl xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx --url https://st12345.blob.core.windows.net/content/Benefit_Options.pdf
   ```
 
-### Azure Data Lake Storage Gen2 Setup
+#### Enabling global access on documents without access control
 
-[Azure Data Lake Storage Gen2](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) implements an [access control model](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control) that can be used for document level access control. The [adlsgen2setup.py](/scripts/adlsgen2setup.py) script uploads the sample data included in the [data](./data) folder to a Data Lake Storage Gen2 storage account. The [Storage Blob Data Owner](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control-model#role-based-access-control-azure-rbac) role is required to use the script.
+- `python ./scripts/manageacl.py --acl-action enable_global_access`: Set the special [`["all"]`](https://learn.microsoft.com/azure/search/search-index-access-control-lists-and-rbac-push-api#special-acl-values-all-and-none) on the `oids` (User ID) and `groups` (Group IDs) security filter fields in your index on documents that do not have any existing `oids` or `groups` access control. This will enable any signed-in user to query these documents.
 
-In order to use this script, an existing Data Lake Storage Gen2 storage account is required. Run `azd env set AZURE_ADLS_GEN2_STORAGE_ACCOUNT <your-storage-account>` prior to running the script.
+## Migrate to built-in document access control
 
-Then run the script inside your Python environment:
+Previous versions of the sample used [security filters](https://learn.microsoft.com/azure/search/search-security-trimming-for-azure-search) to implement document-level access control.
+To support [built-in access control](https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement), deployment takes the following steps:
 
-```shell
-python /scripts/adlsgen2setup.py './data/*' --data-access-control './scripts/sampleacls.json' -v
+1. Adds the `user_impersonation` permission for Azure AI Search to the server app
+2. Enables [permission filtering](https://learn.microsoft.com/azure/search/search-index-access-control-lists-and-rbac-push-api#create-an-index-with-permission-filter-fields) on the existing index.
+3. Sets the [x-ms-query-source-authorization](https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement#how-query-time-enforcement-works) header on every query when `AZURE_ENFORCE_ACCESS_CONTROL` is enabled.
+
+When `AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS` was enabled, previous versions of the sample interpreted no access control on a document as meaning that the document was globally available. Built-in document access control requires [`["all"]`](https://learn.microsoft.com/azure/search/search-index-access-control-lists-and-rbac-push-api#special-acl-values-all-and-none) to be set for each globally available document. You can run a [one-time migration](#enabling-global-access-on-documents-without-access-control) on your existing index to enable global access for these documents.
+
+## Programmatic access with authentication
+
+If you want to use the chat endpoint without the UI and still use authentication, you must disable [App Service built-in authentication](https://learn.microsoft.com/azure/app-service/overview-authentication-authorization) and use only the app's MSAL-based authentication flow. Ensure the `AZURE_DISABLE_APP_SERVICES_AUTHENTICATION` environment variable is set before deploying.
+
+Get an access token that can be used for calling the chat API using the following code:
+
+```python
+from azure.identity import DefaultAzureCredential
+import os
+
+token = DefaultAzureCredential().get_token(f"api://{os.environ['AZURE_SERVER_APP_ID']}/access_as_user", tenant_id=os.getenv('AZURE_AUTH_TENANT_ID', os.getenv('AZURE_TENANT_ID')))
+
+print(token.token)
 ```
-
-The script performs the following steps:
-
-- Creates example [groups](https://learn.microsoft.com/entra/fundamentals/how-to-manage-groups) listed in the [sampleacls.json](/scripts/sampleacls.json) file.
-- Creates a filesystem / container `gptkbcontainer` in the storage account.
-- Creates the directories listed in the [sampleacls.json](/scripts/sampleacls.json) file.
-- Uploads the sample PDFs referenced in the [sampleacls.json](/scripts/sampleacls.json) file into the appropriate directories.
-- [Recursively sets Access Control Lists (ACLs)](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-acl-cli) using the information from the [sampleacls.json](/scripts/sampleacls.json) file.
-
-In order to use the sample access control, you need to join these groups in your Microsoft Entra tenant.
-
-Note that this optional script may not work in Codespaces if your administrator has applied a [Conditional Access policy](https://learn.microsoft.com/entra/identity/conditional-access/overview) to your tenant.
-
-#### Azure Data Lake Storage Gen2 Prep Docs
-
-Once a Data Lake Storage Gen2 storage account has been setup with sample data and access control lists, [prepdocs.py](/app/backend/prepdocs.py) can be used to automatically process PDFs in the storage account and store them with their [access control lists in the search index](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control).
-
-To run this script with a Data Lake Storage Gen2 account, first set the following environment variables:
-
-- `AZURE_ADLS_GEN2_STORAGE_ACCOUNT`: Name of existing [Data Lake Storage Gen2 storage account](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction).
-- (Optional) `AZURE_ADLS_GEN2_FILESYSTEM`: Name of existing Data Lake Storage Gen2 filesystem / container in the storage account. If empty, `gptkbcontainer` is used.
-- (Optional) `AZURE_ADLS_GEN2_FILESYSTEM_PATH`: Specific path in the Data Lake Storage Gen2 filesystem / container to process. Only PDFs contained in this path will be processed.
-
-Once the environment variables are set, run the script using the following command: `/scripts/prepdocs.ps1` or `/scripts/prepdocs.sh`.
 
 ## Environment variables reference
 
@@ -341,16 +459,18 @@ The following environment variables are used to setup the optional login and doc
 
 - `AZURE_USE_AUTHENTICATION`: Enables Entra ID login and document level access control. Set to true before running `azd up`.
 - `AZURE_ENFORCE_ACCESS_CONTROL`: Enforces Entra ID based login and document level access control on documents with access control assigned. Set to true before running `azd up`. If `AZURE_ENFORCE_ACCESS_CONTROL` is enabled and `AZURE_ENABLE_UNAUTHENTICATED_ACCESS` is not enabled, then authentication is required to use the app.
-- `AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS`: Allows users to search on documents that have no access controls assigned
-- `AZURE_ENABLE_UNAUTHENTICATED_ACCESS`: Allows unauthenticated users to access the chat app, even when `AZURE_ENFORCE_ACCESS_CONTROL` is enabled. `AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS` should be set to true to allow unauthenticated users to search on documents that have no access control assigned. Unauthenticated users cannot search on documents with access control assigned.
+- `AZURE_ENABLE_GLOBAL_DOCUMENT_ACCESS`: Enables prepdocs upload code to support setting user ids and group ids to `["all"]` when uploading documents that have no access control assigned. This will enable the built-in document level access control to return these documents if `AZURE_ENFORCE_ACCESS_CONTROL` is enabled. If you are migrating from a previous version where this was not required, you'll have to perform a [one-time migration](#migrate-to-built-in-document-access-control) to enable global document access.
+- `AZURE_ENABLE_UNAUTHENTICATED_ACCESS`: Allows unauthenticated users to access the chat app. If `AZURE_ENFORCE_ACCESS_CONTROL` is enabled, unauthenticated users cannot search on documents.
 - `AZURE_DISABLE_APP_SERVICES_AUTHENTICATION`: Disables [use of built-in authentication for App Services](https://learn.microsoft.com/azure/app-service/overview-authentication-authorization). An authentication flow based on the MSAL SDKs is used instead. Useful when you want to provide programmatic access to the chat endpoints with authentication.
 - `AZURE_SERVER_APP_ID`: (Required) Application ID of the Microsoft Entra app for the API server.
 - `AZURE_SERVER_APP_SECRET`: [Client secret](https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow) used by the API server to authenticate using the Microsoft Entra server app.
 - `AZURE_CLIENT_APP_ID`: Application ID of the Microsoft Entra app for the client UI.
 - `AZURE_AUTH_TENANT_ID`: [Tenant ID](https://learn.microsoft.com/entra/fundamentals/how-to-find-tenant) associated with the Microsoft Entra tenant used for login and document level access control. Defaults to `AZURE_TENANT_ID` if not defined.
-- `AZURE_ADLS_GEN2_STORAGE_ACCOUNT`: (Optional) Name of existing [Data Lake Storage Gen2 storage account](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) for storing sample data with [access control lists](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control). Only used with the optional Data Lake Storage Gen2 [setup](#azure-data-lake-storage-gen2-setup) and [prep docs](#azure-data-lake-storage-gen2-prep-docs) scripts.
-- `AZURE_ADLS_GEN2_FILESYSTEM`: (Optional) Name of existing [Data Lake Storage Gen2 filesystem](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) for storing sample data with [access control lists](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control). Only used with the optional Data Lake Storage Gen2 [setup](#azure-data-lake-storage-gen2-setup) and [prep docs](#azure-data-lake-storage-gen2-prep-docs) scripts.
-- `AZURE_ADLS_GEN2_FILESYSTEM_PATH`: (Optional) Name of existing path in a [Data Lake Storage Gen2 filesystem](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) for storing sample data with [access control lists](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control). Only used with the optional Data Lake Storage Gen2 [prep docs](#azure-data-lake-storage-gen2-prep-docs) script.
+- `USE_CLOUD_INGESTION_ACLS`: (Optional) Set to `true` to enable automatic ACL extraction from ADLS Gen2 files during cloud ingestion. Requires `USE_CLOUD_INGESTION` to also be set to `true`. Used with [cloud ingestion](#cloud-ingestion-with-azure-data-lake-storage-gen2).
+- `USE_EXISTING_ADLS_STORAGE`: (Optional) Set to `true` to use an existing ADLS Gen2 storage account instead of provisioning a new one. Used with [cloud ingestion](#using-your-own-adls-gen2-storage-account).
+- `AZURE_ADLS_GEN2_STORAGE_ACCOUNT`: (Optional) Name of existing [Data Lake Storage Gen2 storage account](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) for storing sample data with [access control lists](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control). Required when `USE_EXISTING_ADLS_STORAGE` is `true`. Used with [cloud ingestion](#cloud-ingestion-with-azure-data-lake-storage-gen2).
+- `AZURE_ADLS_GEN2_STORAGE_RESOURCE_GROUP`: (Optional) Resource group containing the existing ADLS Gen2 storage account. Defaults to the main resource group if not specified. Used with [cloud ingestion](#using-your-own-adls-gen2-storage-account).
+- `AZURE_ADLS_GEN2_FILESYSTEM`: (Optional) Name of existing [Data Lake Storage Gen2 filesystem](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-introduction) for storing sample data with [access control lists](https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control). Used with [cloud ingestion](#cloud-ingestion-with-azure-data-lake-storage-gen2).
 
 ### Authentication behavior by environment
 

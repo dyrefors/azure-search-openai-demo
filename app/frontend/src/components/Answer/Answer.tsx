@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { Stack, IconButton } from "@fluentui/react";
+import { Button } from "@fluentui/react-components";
+import {
+    Copy24Regular,
+    Checkmark24Regular,
+    LightbulbFilament24Regular,
+    ClipboardTextLtr24Regular,
+    ThumbLike24Regular,
+    ThumbDislike24Regular
+} from "@fluentui/react-icons";
 import { useTranslation } from "react-i18next";
 import DOMPurify from "dompurify";
 import ReactMarkdown from "react-markdown";
@@ -51,7 +59,7 @@ export const Answer = ({
     onFeedbackChange
 }: Props) => {
     const followupQuestions = answer.context?.followup_questions;
-    const parsedAnswer = useMemo(() => parseAnswerToHtml(answer, isStreaming, onCitationClicked), [answer]);
+    const parsedAnswer = useMemo(() => parseAnswerToHtml(answer, isStreaming, onCitationClicked), [answer, isStreaming, onCitationClicked]);
     const { t } = useTranslation();
     const sanitizedAnswerHtml = DOMPurify.sanitize(parsedAnswer.answerHtml);
     const [copied, setCopied] = useState(false);
@@ -70,8 +78,11 @@ export const Answer = ({
     };
 
     const handleCopy = () => {
-        // Single replace to remove all HTML tags to remove the citations
-        const textToCopy = sanitizedAnswerHtml.replace(/<a [^>]*><sup>\d+<\/sup><\/a>|<[^>]+>/g, "");
+        const tempElement = document.createElement("div");
+        tempElement.innerHTML = sanitizedAnswerHtml;
+        tempElement.querySelectorAll("sup").forEach(node => node.remove());
+        tempElement.querySelectorAll(".citationStepBadge").forEach(node => node.remove());
+        const textToCopy = tempElement.textContent ?? "";
 
         navigator.clipboard
             .writeText(textToCopy)
@@ -83,25 +94,30 @@ export const Answer = ({
     };
 
     return (
-        <Stack className={`${styles.answerContainer} ${isSelected && styles.selected}`} verticalAlign="space-between">
-            <Stack.Item>
-                <Stack horizontal horizontalAlign="space-between">
+        <div
+            className={`${styles.answerContainer} ${isSelected ? styles.selected : ""}`}
+            style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}
+        >
+            <div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <AnswerIcon />
                     <div>
-                        <IconButton
+                        <Button
+                            appearance="transparent"
                             style={{ color: "black" }}
-                            iconProps={{ iconName: copied ? "CheckMark" : "Copy" }}
+                            icon={copied ? <Checkmark24Regular /> : <Copy24Regular />}
                             title={copied ? t("tooltips.copied") : t("tooltips.copy")}
-                            ariaLabel={copied ? t("tooltips.copied") : t("tooltips.copy")}
+                            aria-label={copied ? t("tooltips.copied") : t("tooltips.copy")}
                             onClick={handleCopy}
                         />
                         {enableFeedback && (
                             <>
-                                <IconButton
+                                <Button
+                                    appearance="transparent"
                                     style={{ color: feedbackValue === "up" ? "green" : "black" }}
-                                    iconProps={{ iconName: "Like" }}
+                                    icon={<ThumbLike24Regular />}
                                     title={t("tooltips.feedbackUp")}
-                                    ariaLabel={t("tooltips.feedbackUp")}
+                                    aria-label={t("tooltips.feedbackUp")}
                                     disabled={isStreaming}
                                     onClick={() => {
                                         const newVal = feedbackValue === "up" ? undefined : "up";
@@ -109,11 +125,12 @@ export const Answer = ({
                                         if (newVal) sendFeedback(newVal);
                                     }}
                                 />
-                                <IconButton
+                                <Button
+                                    appearance="transparent"
                                     style={{ color: feedbackValue === "down" ? "#c50f1f" : "black" }}
-                                    iconProps={{ iconName: "Dislike" }}
+                                    icon={<ThumbDislike24Regular />}
                                     title={t("tooltips.feedbackDown")}
-                                    ariaLabel={t("tooltips.feedbackDown")}
+                                    aria-label={t("tooltips.feedbackDown")}
                                     disabled={isStreaming}
                                     onClick={() => {
                                         const newVal = feedbackValue === "down" ? undefined : "down";
@@ -123,19 +140,21 @@ export const Answer = ({
                                 />
                             </>
                         )}
-                        <IconButton
+                        <Button
+                            appearance="transparent"
                             style={{ color: "black" }}
-                            iconProps={{ iconName: "Lightbulb" }}
+                            icon={<LightbulbFilament24Regular />}
                             title={t("tooltips.showThoughtProcess")}
-                            ariaLabel={t("tooltips.showThoughtProcess")}
+                            aria-label={t("tooltips.showThoughtProcess")}
                             onClick={() => onThoughtProcessClicked()}
                             disabled={!answer.context.thoughts?.length || isStreaming}
                         />
-                        <IconButton
+                        <Button
+                            appearance="transparent"
                             style={{ color: "black" }}
-                            iconProps={{ iconName: "ClipboardList" }}
+                            icon={<ClipboardTextLtr24Regular />}
                             title={t("tooltips.showSupportingContent")}
-                            ariaLabel={t("tooltips.showSupportingContent")}
+                            aria-label={t("tooltips.showSupportingContent")}
                             onClick={() => onSupportingContentClicked()}
                             disabled={!answer.context.data_points || isStreaming}
                         />
@@ -144,36 +163,62 @@ export const Answer = ({
                         )}
                         {showSpeechOutputBrowser && <SpeechOutputBrowser answer={sanitizedAnswerHtml} />}
                     </div>
-                </Stack>
-            </Stack.Item>
+                </div>
+            </div>
 
-            <Stack.Item grow>
+            <div style={{ flexGrow: 1 }}>
                 <div className={styles.answerText}>
                     <ReactMarkdown children={sanitizedAnswerHtml} rehypePlugins={[rehypeRaw]} remarkPlugins={[remarkGfm]} />
                 </div>
-            </Stack.Item>
+            </div>
 
             {!!parsedAnswer.citations.length && (
-                <Stack.Item>
-                    <Stack horizontal wrap tokens={{ childrenGap: 5 }}>
+                <div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
                         <span className={styles.citationLearnMore}>{t("citationWithColon")}</span>
-                        {parsedAnswer.citations.map((x, i) => {
-                            const path = getCitationFilePath(x);
-                            // Strip out the image filename in parentheses if it exists
-                            const strippedPath = path.replace(/\([^)]*\)$/, "");
-                            return (
-                                <a key={i} className={styles.citation} title={x} onClick={() => onCitationClicked(strippedPath)}>
-                                    {`${++i}. ${x}`}
-                                </a>
-                            );
+                        {parsedAnswer.citations.map(citation => {
+                            const isWeb = citation.isWeb;
+                            const displayIndex = citation.index;
+                            const reference = citation.reference;
+                            if (isWeb) {
+                                // Attempt to find the matching web data point to retrieve its title
+                                const webEntry = answer.context.data_points.external_results_metadata?.find(w => w.url === reference);
+                                const titleOrUrl = webEntry?.title?.trim() ? webEntry.title : reference;
+                                return (
+                                    <span key={`${reference}-${displayIndex}`} className={styles.citationEntry}>
+                                        <a className={styles.citation} title={reference} href={reference} target="_blank" rel="noopener noreferrer">
+                                            {`${displayIndex}. ${titleOrUrl}`}
+                                        </a>
+                                    </span>
+                                );
+                            } else {
+                                const path = getCitationFilePath(reference);
+                                return (
+                                    <span key={`${reference}-${displayIndex}`} className={styles.citationEntry}>
+                                        <a
+                                            className={styles.citation}
+                                            title={reference}
+                                            onClick={e => {
+                                                e.preventDefault();
+                                                onCitationClicked(path);
+                                            }}
+                                        >
+                                            {`${displayIndex}. ${reference}`}
+                                        </a>
+                                    </span>
+                                );
+                            }
                         })}
-                    </Stack>
-                </Stack.Item>
+                    </div>
+                </div>
             )}
 
             {!!followupQuestions?.length && showFollowupQuestions && onFollowupQuestionClicked && (
-                <Stack.Item>
-                    <Stack horizontal wrap className={`${!!parsedAnswer.citations.length ? styles.followupQuestionsList : ""}`} tokens={{ childrenGap: 6 }}>
+                <div>
+                    <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}
+                        className={`${!!parsedAnswer.citations.length ? styles.followupQuestionsList : ""}`}
+                    >
                         <span className={styles.followupQuestionLearnMore}>{t("followupQuestions")}</span>
                         {followupQuestions.map((x, i) => {
                             return (
@@ -182,9 +227,9 @@ export const Answer = ({
                                 </a>
                             );
                         })}
-                    </Stack>
-                </Stack.Item>
+                    </div>
+                </div>
             )}
-        </Stack>
+        </div>
     );
 };

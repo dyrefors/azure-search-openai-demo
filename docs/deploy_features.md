@@ -3,16 +3,16 @@
 This document covers optional features that can be enabled in the deployed Azure resources.
 You should typically enable these features before running `azd up`. Once you've set them, return to the [deployment steps](../README.md#deploying).
 
-* [Using different chat completion models](#using-different-chat-completion-models)
+* [Using different chat models](#using-different-chat-models)
 * [Using reasoning models](#using-reasoning-models)
 * [Using different embedding models](#using-different-embedding-models)
 * [Enabling multimodal embeddings and answering](#enabling-multimodal-embeddings-and-answering)
 * [Enabling media description with Azure Content Understanding](#enabling-media-description-with-azure-content-understanding)
+* [Enabling cloud data ingestion](#enabling-cloud-data-ingestion)
 * [Enabling client-side chat history](#enabling-client-side-chat-history)
 * [Enabling persistent chat history with Azure Cosmos DB](#enabling-persistent-chat-history-with-azure-cosmos-db)
 * [Enabling language picker](#enabling-language-picker)
 * [Enabling speech input/output](#enabling-speech-inputoutput)
-* [Enabling Integrated Vectorization](#enabling-integrated-vectorization)
 * [Enabling authentication](#enabling-authentication)
 * [Enabling login and document level access control](#enabling-login-and-document-level-access-control)
 * [Enabling user document upload](#enabling-user-document-upload)
@@ -22,9 +22,9 @@ You should typically enable these features before running `azd up`. Once you've 
 * [Deploying with private endpoints](#deploying-with-private-endpoints)
 * [Using local parsers](#using-local-parsers)
 
-## Using different chat completion models
+## Using different chat models
 
-As of early June 2025, the default chat completion model is `gpt-4.1-mini`. If you deployed this sample before that date, the default model is `gpt-3.5-turbo` or `gpt-4o-mini`. You can change the chat completion model to any Azure OpenAI chat model that's available in your Azure OpenAI resource region by following these steps:
+As of June 2026, the default chat model is `gpt-5.4-mini`. If you deployed this sample before that date, the default model may be `gpt-4.1-mini`, `gpt-3.5-turbo`, or `gpt-4o-mini`. You can change the chat model to any Azure OpenAI model that's available in your Azure OpenAI resource region by following these steps:
 
 1. To set the name of the deployment, run this command with a unique name in your Azure OpenAI account. You can use any deployment name, as long as it's unique in your Azure OpenAI account. For convenience, many developers use the same deployment name as the model name, but this is not required.
 
@@ -35,88 +35,40 @@ As of early June 2025, the default chat completion model is `gpt-4.1-mini`. If y
     For example:
 
     ```bash
-    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT gpt-5-chat
+    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT gpt-5.4-mini
     ```
 
-1. To set the GPT model to a different [available model](https://learn.microsoft.com/azure/ai-services/openai/concepts/models), run this command with the appropriate model name. For reasoning models like gpt-5/o3/o4, check [the reasoning guide](./reasoning.md)
+1. To set the GPT model to a different [available model](https://learn.microsoft.com/azure/ai-services/openai/concepts/models), run this command with the appropriate model name. A few examples are below.
 
-   For gpt-5-chat:
+   For gpt-5.4-mini(default):
 
    ```shell
-   azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-5-chat
+   azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-5.4-mini
    ```
 
-    For gpt-4.1-mini:
+   For gpt-5.2:
 
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-4.1-mini
-    ```
-
-    For gpt-4o:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-4o
-    ```
-
-    For gpt-4o mini:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-4o-mini
-    ```
-
-    For gpt-4:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-4
-    ```
-
-    For gpt-3.5-turbo:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-35-turbo
-    ```
+   ```shell
+   azd env set AZURE_OPENAI_CHATGPT_MODEL gpt-5.2
+   ```
 
 1. To set the Azure OpenAI model version from the [available versions](https://learn.microsoft.com/azure/ai-services/openai/concepts/models), run this command with the appropriate version string.
 
-   For gpt-5-chat:
+   For gpt-5.4-mini (default)
 
    ```shell
-   azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 2025-08-07
+   azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 2026-03-17
    ```
 
-    For gpt-4.1-mini:
+   For gpt-5.2:
 
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 2025-04-14
-    ```
+   ```shell
+   azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 2025-12-11
+   ```
 
-    For gpt-4o:
+1. To set the Azure OpenAI deployment SKU name, run this command with [the desired SKU name](https://learn.microsoft.com/azure/ai-foundry/foundry-models/concepts/deployment-types).
 
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 2024-05-13
-    ```
-
-    For gpt-4o mini:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 2024-07-18
-    ```
-
-    For gpt-4:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION turbo-2024-04-09
-    ```
-
-    For gpt-3.5-turbo:
-
-    ```bash
-    azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_VERSION 0125
-    ```
-
-1. To set the Azure OpenAI deployment SKU name, run this command with [the desired SKU name](https://learn.microsoft.com/azure/ai-services/openai/how-to/deployment-types#deployment-types).
-
-    For GlobalStandard:
+    For GlobalStandard (default):
 
     ```bash
     azd env set AZURE_OPENAI_CHATGPT_DEPLOYMENT_SKU GlobalStandard
@@ -147,8 +99,8 @@ This process does *not* delete your previous model deployment. If you want to de
 
 ## Using reasoning models
 
-This feature allows you to use reasoning models to generate responses based on retrieved content. These models spend more time processing and understanding the user's request.
-To enable reasoning models, follow the steps in [the reasoning models guide](./reasoning.md).
+The default model (gpt-5.4-mini) is a reasoning model. These models spend more time processing and understanding the user's request, leading to higher quality responses.
+To learn more about supported reasoning models and configuring reasoning effort, see [the reasoning models guide](./reasoning.md).
 
 ## Using agentic retrieval
 
@@ -206,7 +158,7 @@ By default, the deployed Azure web app uses the `text-embedding-3-large` embeddi
     azd env set AZURE_OPENAI_EMB_DEPLOYMENT_VERSION 1
     ```
 
-4. To set the embedding model deployment SKU name, run this command with [the desired SKU name](https://learn.microsoft.com/azure/ai-services/openai/how-to/deployment-types#deployment-types).
+4. To set the embedding model deployment SKU name, run this command with [the desired SKU name](https://learn.microsoft.com/azure/ai-foundry/foundry-models/concepts/deployment-types).
 
     For GlobalStandard:
 
@@ -236,8 +188,7 @@ Learn more in the [multimodal guide](./multimodal.md).
 
 ## Enabling media description with Azure Content Understanding
 
-⚠️ This feature is not currently compatible with [integrated vectorization](#enabling-integrated-vectorization).
-It is compatible with the [multimodal feature](./multimodal.md), but this feature enables only a subset of multimodal capabilities,
+⚠️ This feature is compatible with the [multimodal feature](./multimodal.md), but this feature enables only a subset of multimodal capabilities,
 so you may want to enable the multimodal feature instead or as well.
 
 By default, if your documents contain image-like figures, the data ingestion process will ignore those figures,
@@ -257,6 +208,12 @@ first [remove the existing documents](./data_ingestion.md#removing-documents) an
 
 ⚠️ This feature does not yet support DOCX, PPTX, or XLSX formats. If you have figures in those formats, they will be ignored.
 Convert them first to PDF or image formats to enable media description.
+
+## Enabling cloud data ingestion
+
+By default, this project runs a local script in order to ingest data. Once you move beyond the sample documents, you may want to enable [cloud ingestion](./data_ingestion.md#cloud-ingestion), which uses Azure AI Search indexers and custom Azure AI Search skills based off the same code used by the local ingestion. That approach scales better to larger amounts of data.
+
+Learn more in the [cloud ingestion guide](./data_ingestion.md#cloud-ingestion).
 
 ## Enabling client-side chat history
 
@@ -279,6 +236,8 @@ azd env set USE_CHAT_HISTORY_COSMOS true
 ```
 
 When both the browser-stored and Cosmos DB options are enabled, Cosmos DB will take precedence over browser-stored chat history.
+
+> **⚠️ Re-deploying over older versions:** If you previously deployed this template before the chat history container was migrated to MultiHash partition keys (`/entra_oid` + `/session_id`), re-deploying may fail with a `PropertyChangeNotAllowed` error. Cosmos DB partition keys are immutable. To resolve this, delete the `chat-history-v2` container in Azure Portal or via CLI, then re-deploy. Existing chat history in that container will be lost. See [Troubleshooting deployment](deploy_troubleshooting.md) for more details.
 
 ## Enabling language picker
 
@@ -323,31 +282,6 @@ Alternatively you can use the browser's built-in [Speech Synthesis API](https://
 ```shell
 azd env set USE_SPEECH_OUTPUT_BROWSER true
 ```
-
-## Enabling Integrated Vectorization
-
-Azure AI search recently introduced an [integrated vectorization feature in preview mode](https://techcommunity.microsoft.com/blog/azure-ai-services-blog/announcing-the-public-preview-of-integrated-vectorization-in-azure-ai-search/3960809). This feature is a cloud-based approach to data ingestion, which takes care of document format cracking, data extraction, chunking, vectorization, and indexing, all with Azure technologies.
-
-To enable integrated vectorization with this sample:
-
-1. If you've previously deployed, delete the existing search index. 🗑️
-2. To enable the use of integrated vectorization, run:
-
-    ```shell
-    azd env set USE_FEATURE_INT_VECTORIZATION true
-    ```
-
-3. If you've already deployed your app, then you can run just the `provision` step:
-
-    ```shell
-    azd provision
-    ```
-
-    That will set up necessary RBAC roles and configure the integrated vectorization feature on your search service.
-
-    If you haven't deployed your app yet, then you should run the full `azd up` after configuring all optional features.
-
-4. You can view the resources such as the indexer and skillset in Azure Portal and monitor the status of the vectorization process.
 
 ## Enabling authentication
 

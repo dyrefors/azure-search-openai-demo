@@ -125,7 +125,9 @@ def test_chat(sized_page: Page, live_server_url: str):
     expect(page.get_by_role("button", name="Developer settings")).to_be_enabled()
 
     # Check accessibility of page in initial state
-    results = Axe().run(page)
+    # Exclude Tabster dummy elements which are internal to Fluent UI v9 focus management
+    # and cause a known false positive for aria-hidden-focus (see microsoft/tabster#288)
+    results = Axe().run(page, context={"exclude": ["[data-tabster-dummy]"]})
     assert results.violations_count == 0, results.generate_report()
 
     # Ask a question and wait for the message to appear
@@ -161,6 +163,86 @@ def test_chat(sized_page: Page, live_server_url: str):
     expect(page.get_by_role("button", name="Clear chat")).to_be_disabled()
 
 
+def test_chat_stop_button_visibility(page: Page, live_server_url: str):
+    """Test that the stop button feature works without breaking the chat flow.
+
+    Note: This test verifies the initial and final states but does not assert
+    that the stop button appears during streaming. Testing transient UI states
+    is flaky since the mock returns instantly. A proper test would require a
+    delayed mock response, adding significant complexity for minimal benefit.
+    """
+
+    # Set up a mock route to the /chat endpoint with streaming results
+    def handle(route: Route):
+        # Read the JSONL from our snapshot results and return as the response
+        with open("tests/snapshots/test_app/test_chat_stream_text/client0/result.jsonlines") as f:
+            jsonl = f.read()
+        route.fulfill(body=jsonl, status=200, headers={"Transfer-encoding": "Chunked"})
+
+    page.route("*/**/chat/stream", handle)
+
+    # Check initial page state
+    page.goto(live_server_url)
+    expect(page).to_have_title("Azure OpenAI + AI Search")
+
+    # Verify the submit button is visible initially (not the stop button)
+    expect(page.get_by_label("Submit question")).to_be_visible()
+    expect(page.get_by_label("Stop streaming")).not_to_be_visible()
+
+    # Ask a question
+    page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)").click()
+    page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)").fill(
+        "Whats the dental plan?"
+    )
+    page.get_by_label("Submit question").click()
+
+    # Wait for the response to complete and verify the submit button is back
+    expect(page.get_by_text("The capital of France is Paris.")).to_be_visible()
+    expect(page.get_by_label("Submit question")).to_be_visible()
+    expect(page.get_by_label("Stop streaming")).not_to_be_visible()
+
+
+def test_chat_stop_restores_question(page: Page, live_server_url: str):
+    """Test that when streaming returns no content, the question is restored to input."""
+
+    # Set up a mock route that returns an empty streaming response (no content)
+    def handle(route: Route):
+        # Return a valid but empty NDJSON stream - this simulates stopping before content arrives
+        # Need at least one event with context/data_points to initialize, but no delta content
+        jsonl = '{"type": "response.context", "context": {"data_points": {"text": []}, "thoughts": []}, "session_state": null}\n'
+        route.fulfill(
+            status=200,
+            headers={"Transfer-encoding": "Chunked", "Content-Type": "application/x-ndjson"},
+            body=jsonl,
+        )
+
+    page.route("*/**/chat/stream", handle)
+
+    # Check initial page state
+    page.goto(live_server_url)
+    expect(page).to_have_title("Azure OpenAI + AI Search")
+
+    # Type a question
+    question_input = page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)")
+    question_input.click()
+    question_input.fill("Whats the dental plan?")
+
+    # Submit the question
+    page.get_by_label("Submit question").click()
+
+    # The response contains context but no actual content (no delta.content events)
+    # So the answer should be empty and question should be restored to input
+
+    # Verify the question is restored to the input field
+    expect(question_input).to_have_value("Whats the dental plan?")
+
+    # Verify the submit button is back
+    expect(page.get_by_label("Submit question")).to_be_visible()
+
+    # Verify no answer was added to the chat (Clear chat should be disabled since answer was empty)
+    expect(page.get_by_role("button", name="Clear chat")).to_be_disabled()
+
+
 def test_chat_customization(page: Page, live_server_url: str):
     # Set up a mock route to the /chat endpoint
     def handle(route: Route):
@@ -169,7 +251,7 @@ def test_chat_customization(page: Page, live_server_url: str):
             if post_data and "context" in post_data and "overrides" in post_data["context"]:
                 overrides = post_data["context"]["overrides"]
                 assert overrides["temperature"] == 0.5
-                assert overrides["seed"] == 123
+
                 assert overrides["minimum_search_score"] == 0.5
                 assert overrides["minimum_reranker_score"] == 0.5
                 assert overrides["retrieval_mode"] == "vectors"
@@ -179,8 +261,6 @@ def test_chat_customization(page: Page, live_server_url: str):
                 assert overrides["prompt_template"] == "You are a cat and only talk about tuna."
                 assert overrides["exclude_category"] == "dogs"
                 assert overrides["suggest_followup_questions"] is True
-                assert overrides["use_oid_security_filter"] is False
-                assert overrides["use_groups_security_filter"] is False
         except Exception as e:
             print(f"Error in test_chat_customization handler: {e}")
 
@@ -202,8 +282,6 @@ def test_chat_customization(page: Page, live_server_url: str):
     page.get_by_label("Override prompt template").fill("You are a cat and only talk about tuna.")
     page.get_by_label("Temperature").click()
     page.get_by_label("Temperature").fill("0.5")
-    page.get_by_label("Seed").click()
-    page.get_by_label("Seed").fill("123")
     page.get_by_label("Minimum search score").click()
     page.get_by_label("Minimum search score").fill("0.5")
     page.get_by_label("Minimum reranker score").click()
@@ -250,7 +328,7 @@ def test_chat_customization_multimodal(page: Page, live_server_url: str):
                 assert overrides["send_image_sources"] is True
                 assert overrides["search_text_embeddings"] is False
                 assert overrides["search_image_embeddings"] is True
-                assert overrides["retrievalMode"] == "vectors"
+                assert overrides["retrieval_mode"] == "vectors"
         except Exception as e:
             print(f"Error in handle_chat: {e}")
 
@@ -264,14 +342,29 @@ def test_chat_customization_multimodal(page: Page, live_server_url: str):
         route.fulfill(
             body=json.dumps(
                 {
+                    "defaultReasoningEffort": "",
+                    "defaultRetrievalReasoningEffort": "minimal",
                     "showMultimodalOptions": True,
                     "showSemanticRankerOption": True,
-                    "showVectorOption": True,
+                    "showQueryRewritingOption": False,
+                    "showReasoningEffortOption": False,
+                    "reasoningEffortOptions": [],
                     "streamingEnabled": True,
+                    "showVectorOption": True,
+                    "showUserUpload": False,
+                    "showLanguagePicker": False,
+                    "showSpeechInput": False,
+                    "showSpeechOutputBrowser": False,
+                    "showSpeechOutputAzure": False,
+                    "showChatHistoryBrowser": False,
+                    "showChatHistoryCosmos": False,
+                    "showAgenticRetrievalOption": False,
                     "ragSearchImageEmbeddings": True,
                     "ragSearchTextEmbeddings": True,
                     "ragSendImageSources": True,
                     "ragSendTextSources": True,
+                    "webSourceEnabled": False,
+                    "sharepointSourceEnabled": False,
                 }
             ),
             status=200,
@@ -431,43 +524,6 @@ def test_chat_followup_nonstreaming(page: Page, live_server_url: str):
     expect(page.get_by_text("The capital of France is Paris.")).to_have_count(2)
 
 
-def test_ask(sized_page: Page, live_server_url: str):
-    page = sized_page
-
-    # Set up a mock route to the /ask endpoint
-    def handle(route: Route):
-        # Assert that session_state is specified in the request (None for now)
-        try:
-            post_data = route.request.post_data_json
-            if post_data and "session_state" in post_data:
-                session_state = post_data["session_state"]
-                assert session_state is None
-        except Exception as e:
-            print(f"Error in test_ask handler: {e}")
-
-        # Read the JSON from our snapshot results and return as the response
-        f = open("tests/snapshots/test_app/test_ask_rtr_hybrid/client0/result.json")
-        json_data = f.read()
-        f.close()
-        route.fulfill(body=json_data, status=200)
-
-    page.route("*/**/ask", handle)
-    page.goto(live_server_url)
-    expect(page).to_have_title("Azure OpenAI + AI Search")
-
-    # The burger menu only exists at smaller viewport sizes
-    if page.get_by_role("button", name="Toggle menu").is_visible():
-        page.get_by_role("button", name="Toggle menu").click()
-    page.get_by_role("link", name="Ask a question").click()
-    page.get_by_placeholder("Example: Does my plan cover annual eye exams?").click()
-    page.get_by_placeholder("Example: Does my plan cover annual eye exams?").fill("Whats the dental plan?")
-    page.get_by_placeholder("Example: Does my plan cover annual eye exams?").click()
-    page.get_by_label("Submit question").click()
-
-    expect(page.get_by_text("Whats the dental plan?")).to_be_visible()
-    expect(page.get_by_text("The capital of France is Paris.")).to_be_visible()
-
-
 def test_upload_hidden(page: Page, live_server_url: str):
 
     def handle_auth_setup(route: Route):
@@ -481,10 +537,29 @@ def test_upload_hidden(page: Page, live_server_url: str):
         route.fulfill(
             body=json.dumps(
                 {
+                    "defaultReasoningEffort": "",
+                    "defaultRetrievalReasoningEffort": "minimal",
                     "showMultimodalOptions": False,
                     "showSemanticRankerOption": True,
-                    "showUserUpload": False,
+                    "showQueryRewritingOption": False,
+                    "showReasoningEffortOption": False,
+                    "reasoningEffortOptions": [],
+                    "streamingEnabled": True,
                     "showVectorOption": True,
+                    "showUserUpload": False,
+                    "showLanguagePicker": False,
+                    "showSpeechInput": False,
+                    "showSpeechOutputBrowser": False,
+                    "showSpeechOutputAzure": False,
+                    "showChatHistoryBrowser": False,
+                    "showChatHistoryCosmos": False,
+                    "showAgenticRetrievalOption": False,
+                    "ragSearchImageEmbeddings": False,
+                    "ragSearchTextEmbeddings": True,
+                    "ragSendImageSources": False,
+                    "ragSendTextSources": True,
+                    "webSourceEnabled": False,
+                    "sharepointSourceEnabled": False,
                 }
             ),
             status=200,
@@ -513,10 +588,29 @@ def test_upload_disabled(page: Page, live_server_url: str):
         route.fulfill(
             body=json.dumps(
                 {
+                    "defaultReasoningEffort": "",
+                    "defaultRetrievalReasoningEffort": "minimal",
                     "showMultimodalOptions": False,
                     "showSemanticRankerOption": True,
-                    "showUserUpload": True,
+                    "showQueryRewritingOption": False,
+                    "showReasoningEffortOption": False,
+                    "reasoningEffortOptions": [],
+                    "streamingEnabled": True,
                     "showVectorOption": True,
+                    "showUserUpload": True,
+                    "showLanguagePicker": False,
+                    "showSpeechInput": False,
+                    "showSpeechOutputBrowser": False,
+                    "showSpeechOutputAzure": False,
+                    "showChatHistoryBrowser": False,
+                    "showChatHistoryCosmos": False,
+                    "showAgenticRetrievalOption": False,
+                    "ragSearchImageEmbeddings": False,
+                    "ragSearchTextEmbeddings": True,
+                    "ragSendImageSources": False,
+                    "ragSendTextSources": True,
+                    "webSourceEnabled": False,
+                    "sharepointSourceEnabled": False,
                 }
             ),
             status=200,
@@ -531,3 +625,197 @@ def test_upload_disabled(page: Page, live_server_url: str):
     expect(page.get_by_role("button", name="Manage file uploads")).to_be_visible()
     expect(page.get_by_role("button", name="Manage file uploads")).to_be_disabled()
     # We can't test actual file upload as we don't currently have isLoggedIn(client) mocked out
+
+
+def test_agentic_retrieval_effort_minimal_disables_web(page: Page, live_server_url: str):
+    """Test that selecting 'Minimal' effort deselects and disables the web source checkbox."""
+
+    # Set up a mock route to the /chat endpoint
+    def handle(route: Route):
+        try:
+            post_data = route.request.post_data_json
+            if post_data and "context" in post_data and "overrides" in post_data["context"]:
+                overrides = post_data["context"]["overrides"]
+                assert overrides["temperature"] == 0.5
+                assert overrides["minimum_search_score"] == 0.5
+                assert overrides["minimum_reranker_score"] == 0.5
+                assert overrides["retrieval_mode"] == "vectors"
+                assert overrides["semantic_ranker"] is False
+                assert overrides["semantic_captions"] is True
+                assert overrides["top"] == 1
+                assert overrides["prompt_template"] == "You are a cat and only talk about tuna."
+                assert overrides["exclude_category"] == "dogs"
+                assert overrides["suggest_followup_questions"] is True
+        except Exception as e:
+            print(f"Error in test_chat_customization handler: {e}")
+
+        # Read the JSON from our snapshot results and return as the response
+        f = open("tests/snapshots/test_app/test_chat_text_agent/knowledgebase_client2_sharepoint/result.json")
+        json_data = f.read()
+        f.close()
+        route.fulfill(body=json_data, status=200)
+
+    page.route("*/**/chat", handle)
+
+    def handle_config(route: Route):
+        route.fulfill(
+            body=json.dumps(
+                {
+                    "defaultReasoningEffort": "",
+                    "defaultRetrievalReasoningEffort": "low",
+                    "showMultimodalOptions": False,
+                    "showSemanticRankerOption": True,
+                    "showQueryRewritingOption": False,
+                    "showReasoningEffortOption": False,
+                    "reasoningEffortOptions": [],
+                    "streamingEnabled": True,
+                    "showVectorOption": True,
+                    "showUserUpload": False,
+                    "showLanguagePicker": False,
+                    "showSpeechInput": False,
+                    "showSpeechOutputBrowser": False,
+                    "showSpeechOutputAzure": False,
+                    "showChatHistoryBrowser": False,
+                    "showChatHistoryCosmos": False,
+                    "showAgenticRetrievalOption": True,
+                    "ragSearchImageEmbeddings": False,
+                    "ragSearchTextEmbeddings": True,
+                    "ragSendImageSources": False,
+                    "ragSendTextSources": True,
+                    "webSourceEnabled": True,
+                    "sharepointSourceEnabled": True,
+                }
+            ),
+            status=200,
+        )
+
+    page.route("*/**/config", handle_config)
+
+    page.goto(live_server_url)
+    expect(page).to_have_title("Azure OpenAI + AI Search")
+
+    # Open Developer settings
+    page.get_by_role("button", name="Developer settings").click()
+
+    # Verify that agentic retrieval option is visible
+    expect(page.get_by_text("Retrieval reasoning effort")).to_be_visible()
+
+    # Verify that web and sharepoint checkboxes are initially visible and enabled
+    web_checkbox = page.get_by_role("checkbox", name="Include web source")
+    sharepoint_checkbox = page.get_by_role("checkbox", name="Include SharePoint source")
+    expect(web_checkbox).to_be_visible()
+    expect(web_checkbox).to_be_enabled()
+    expect(sharepoint_checkbox).to_be_visible()
+    expect(sharepoint_checkbox).to_be_enabled()
+
+    # Select "Minimal" from the effort dropdown
+    page.get_by_label("Retrieval reasoning effort").click()
+    page.get_by_role("option", name="Minimal").click()
+
+    # Verify that web checkbox is now deselected and disabled
+    expect(web_checkbox).not_to_be_checked()
+    expect(web_checkbox).to_be_disabled()
+
+    # Verify that SharePoint checkbox is still enabled
+    expect(sharepoint_checkbox).to_be_enabled()
+
+    # Now select "Low" from the effort dropdown
+    page.get_by_label("Retrieval reasoning effort").click()
+    page.get_by_role("option", name="Low").click()
+
+    # De-select streaming
+    page.get_by_text("Stream chat completion responses").click()
+    page.locator("button").filter(has_text="Close").click()
+
+    # Ask a question and wait for the message to appear
+    page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)").click()
+    page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)").fill(
+        "Whats the dental plan?"
+    )
+    page.get_by_role("button", name="Submit question").click()
+
+    expect(page.get_by_text("Whats the dental plan?")).to_be_visible()
+    expect(page.get_by_text("The capital of France is Paris.")).to_be_visible()
+    expect(page.get_by_role("button", name="Clear chat")).to_be_enabled()
+
+    # Open the thought process by clicking the lightbulb on the answer
+    page.get_by_label("Show thought process").click()
+    expect(page.get_by_title("Thought process")).to_be_visible()
+
+    # Verify the expected thought process sections are visible
+    expect(page.get_by_text("Agentic retrieval response")).to_be_visible()
+    expect(page.get_by_text("Prompt to generate answer")).to_be_visible()
+
+
+def test_agentic_retrieval_query_plan(page: Page, live_server_url: str):
+    """Test that the agentic query plan renders its execution steps, search query, and source.
+
+    Guards against frontend/backend casing drift silently falling back to placeholder values
+    ("—", "search index") instead of the real step data.
+    """
+
+    def handle(route: Route):
+        # Non-streaming agentic snapshot whose query_plan carries the execution steps
+        with open("tests/snapshots/test_app/test_chat_text_agent/knowledgebase_client0/result.json") as f:
+            route.fulfill(body=f.read(), status=200)
+
+    page.route("*/**/chat", handle)
+
+    def handle_config(route: Route):
+        route.fulfill(
+            body=json.dumps(
+                {
+                    "defaultReasoningEffort": "",
+                    "defaultRetrievalReasoningEffort": "low",
+                    "showMultimodalOptions": False,
+                    "showSemanticRankerOption": True,
+                    "showQueryRewritingOption": False,
+                    "showReasoningEffortOption": False,
+                    "reasoningEffortOptions": [],
+                    "streamingEnabled": False,
+                    "showVectorOption": True,
+                    "showUserUpload": False,
+                    "showLanguagePicker": False,
+                    "showSpeechInput": False,
+                    "showSpeechOutputBrowser": False,
+                    "showSpeechOutputAzure": False,
+                    "showChatHistoryBrowser": False,
+                    "showChatHistoryCosmos": False,
+                    "showAgenticRetrievalOption": True,
+                    "ragSearchImageEmbeddings": False,
+                    "ragSearchTextEmbeddings": True,
+                    "ragSendImageSources": False,
+                    "ragSendTextSources": True,
+                    "webSourceEnabled": True,
+                    "sharepointSourceEnabled": True,
+                }
+            ),
+            status=200,
+        )
+
+    page.route("*/**/config", handle_config)
+
+    page.goto(live_server_url)
+    expect(page).to_have_title("Azure OpenAI + AI Search")
+
+    # Ask a question and wait for the answer to appear. streamingEnabled=False in the config
+    # forces the non-streaming /chat path (whose snapshot carries the query_plan), so no
+    # Developer settings toggle is needed.
+    page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)").click()
+    page.get_by_placeholder("Type a new question (e.g. does my plan cover annual eye exams?)").fill(
+        "Whats the dental plan?"
+    )
+    page.get_by_role("button", name="Submit question").click()
+
+    expect(page.get_by_text("The capital of France is Paris.")).to_be_visible()
+
+    # Open the thought process by clicking the lightbulb on the answer
+    page.get_by_label("Show thought process").click()
+    expect(page.get_by_title("Thought process")).to_be_visible()
+
+    # Verify the query plan "Execution steps" table renders the real step data
+    expect(page.get_by_text("Execution steps")).to_be_visible()
+    expect(page.get_by_text("Query planning")).to_be_visible()
+    expect(page.get_by_text("Index search")).to_be_visible()
+    expect(page.get_by_text("Search: whistleblower query")).to_be_visible()
+    expect(page.get_by_text("Source: index")).to_be_visible()

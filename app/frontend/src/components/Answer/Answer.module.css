@@ -1,10 +1,11 @@
 .answerContainer {
     padding: 1.25em;
     background: rgb(249, 249, 249);
-    border-radius: 0.5em;
+    border-radius: 0.75em;
     box-shadow:
-        0em 0.125em 0.25em rgba(0, 0, 0, 0.14),
-        0em 0em 0.125em rgba(0, 0, 0, 0.12);
+        0 2px 8px rgba(0, 0, 0, 0.06),
+        0 0 1px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e8e8e8;
     outline: transparent solid 0.0625em;
 }
 
@@ -95,6 +96,18 @@ h2 {
     text-decoration: underline;
 }
 
+.citationBadgeContainer {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+}
+
+.citationEntry {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375em;
+}
+
 sup {
     position: relative;
     display: inline-flex;
@@ -113,6 +126,33 @@ sup {
     text-decoration-color: transparent;
     outline: transparent solid 0.0625em;
     cursor: pointer;
+}
+
+.citationStepBadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #f4f6ff;
+    color: #123bb6;
+    font-weight: 600;
+    border: 0.0625em solid #d1dbfa;
+}
+
+.citationStepBadgeInline {
+    font-size: 0.55em;
+    min-width: auto;
+    height: auto;
+    padding: 0.125em 0.5em;
+    line-height: 1.1;
+}
+
+.citationStepBadgeList {
+    font-size: 0.75em;
+    min-width: auto;
+    height: auto;
+    padding: 0.125em 0.75em;
+    line-height: 1.1;
 }
 
 .retryButton {

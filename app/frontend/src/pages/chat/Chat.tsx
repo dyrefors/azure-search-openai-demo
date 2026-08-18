@@ -1,7 +1,16 @@
 import { useRef, useState, useEffect, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { Helmet } from "react-helmet-async";
-import { Panel, DefaultButton } from "@fluentui/react";
+import {
+    OverlayDrawer,
+    DrawerHeader,
+    DrawerHeaderTitle,
+    DrawerBody,
+    Button,
+    type DialogOpenChangeEvent,
+    type DialogOpenChangeData
+} from "@fluentui/react-components";
+import { Dismiss24Regular } from "@fluentui/react-icons";
 import readNDJSONStream from "ndjson-readablestream";
 
 import appLogo from "../../assets/applogo.svg";
@@ -31,25 +40,25 @@ const Chat = () => {
     const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
     const [promptTemplate, setPromptTemplate] = useState<string>("");
     const [temperature, setTemperature] = useState<number>(0.3);
-    const [seed, setSeed] = useState<number | null>(null);
-    const [minimumRerankerScore, setMinimumRerankerScore] = useState<number>(0);
+    const [minimumRerankerScore, setMinimumRerankerScore] = useState<number>(1.9);
     const [minimumSearchScore, setMinimumSearchScore] = useState<number>(0);
-    const [retrieveCount, setRetrieveCount] = useState<number>(3);
-    const [resultsMergeStrategy, setResultsMergeStrategy] = useState<string>("interleaved");
+    const [retrieveCount, setRetrieveCount] = useState<number>(5);
+    const [agenticReasoningEffort, setRetrievalReasoningEffort] = useState<string>("minimal");
     const [retrievalMode, setRetrievalMode] = useState<RetrievalMode>(RetrievalMode.Hybrid);
     const [useSemanticRanker, setUseSemanticRanker] = useState<boolean>(true);
     const [useQueryRewriting, setUseQueryRewriting] = useState<boolean>(false);
     const [reasoningEffort, setReasoningEffort] = useState<string>("");
+    const [reasoningEffortOptions, setReasoningEffortOptions] = useState<string[]>([]);
     const [streamingEnabled, setStreamingEnabled] = useState<boolean>(true);
     const [shouldStream, setShouldStream] = useState<boolean>(true);
+    const previousShouldStreamRef = useRef<boolean>(true);
+    const forcedStreamingRef = useRef<boolean>(false);
     const [useSemanticCaptions, setUseSemanticCaptions] = useState<boolean>(false);
     const [includeCategory, setIncludeCategory] = useState<string>("");
     const [excludeCategory, setExcludeCategory] = useState<string>("");
     const [useSuggestFollowupQuestions, setUseSuggestFollowupQuestions] = useState<boolean>(false);
     const [searchTextEmbeddings, setSearchTextEmbeddings] = useState<boolean>(true);
     const [searchImageEmbeddings, setSearchImageEmbeddings] = useState<boolean>(false);
-    const [useOidSecurityFilter, setUseOidSecurityFilter] = useState<boolean>(false);
-    const [useGroupsSecurityFilter, setUseGroupsSecurityFilter] = useState<boolean>(false);
     const [sendTextSources, setSendTextSources] = useState<boolean>(true);
     const [sendImageSources, setSendImageSources] = useState<boolean>(false);
 
@@ -58,6 +67,8 @@ const Chat = () => {
 
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isStreaming, setIsStreaming] = useState<boolean>(false);
+    const [abortController, setAbortController] = useState<AbortController | null>(null);
+    const [restoredQuestion, setRestoredQuestion] = useState<string>("");
     const [error, setError] = useState<unknown>();
 
     const [activeCitation, setActiveCitation] = useState<string>();
@@ -82,7 +93,13 @@ const Chat = () => {
     const [showChatHistoryBrowser, setShowChatHistoryBrowser] = useState<boolean>(false);
     const [showChatHistoryCosmos, setShowChatHistoryCosmos] = useState<boolean>(false);
     const [showAgenticRetrievalOption, setShowAgenticRetrievalOption] = useState<boolean>(false);
-    const [useAgenticRetrieval, setUseAgenticRetrieval] = useState<boolean>(false);
+    const [webSourceSupported, setWebSourceSupported] = useState<boolean>(false);
+    const [webSourceEnabled, setWebSourceEnabled] = useState<boolean>(false);
+    const [sharePointSourceSupported, setSharePointSourceSupported] = useState<boolean>(false);
+    const [sharePointSourceEnabled, setSharePointSourceEnabled] = useState<boolean>(false);
+    const [useAgenticKnowledgeBase, setUseAgenticRetrieval] = useState<boolean>(false);
+    const [hideMinimalRetrievalReasoningOption, setHideMinimalRetrievalReasoningOption] = useState<boolean>(false);
+    const streamingDisabledByOverrides = useAgenticKnowledgeBase && webSourceEnabled;
 
     const audio = useRef(new Audio()).current;
     const [isPlaying, setIsPlaying] = useState(false);
@@ -110,10 +127,8 @@ const Chat = () => {
             setUseQueryRewriting(config.showQueryRewritingOption);
             setShowQueryRewritingOption(config.showQueryRewritingOption);
             setShowReasoningEffortOption(config.showReasoningEffortOption);
+            setReasoningEffortOptions(config.reasoningEffortOptions || []);
             setStreamingEnabled(config.streamingEnabled);
-            if (!config.streamingEnabled) {
-                setShouldStream(false);
-            }
             if (config.showReasoningEffortOption) {
                 setReasoningEffort(config.defaultReasoningEffort);
             }
@@ -130,15 +145,26 @@ const Chat = () => {
             setShowChatHistoryCosmos(config.showChatHistoryCosmos);
             setShowAgenticRetrievalOption(config.showAgenticRetrievalOption);
             setUseAgenticRetrieval(config.showAgenticRetrievalOption);
+            setWebSourceSupported(config.webSourceEnabled);
+            setWebSourceEnabled(config.webSourceEnabled);
+            setSharePointSourceSupported(config.sharepointSourceEnabled);
+            setSharePointSourceEnabled(config.sharepointSourceEnabled);
             if (config.showAgenticRetrievalOption) {
                 setRetrieveCount(10);
             }
+            const defaultRetrievalEffort = config.defaultRetrievalReasoningEffort ?? "minimal";
+            setHideMinimalRetrievalReasoningOption(config.webSourceEnabled);
+            setRetrievalReasoningEffort(defaultRetrievalEffort);
         });
     };
 
-    const handleAsyncRequest = async (question: string, answers: [string, ChatAppResponse][], responseBody: ReadableStream<any>) => {
+    const handleAsyncRequest = async (question: string, answers: [string, ChatAppResponse][], responseBody: ReadableStream<any>, signal: AbortSignal) => {
         let answer: string = "";
-        let askResponse: ChatAppResponse = {} as ChatAppResponse;
+        let askResponse: ChatAppResponse = {
+            output_text: "",
+            context: { data_points: { text: [], images: [], citations: [] }, thoughts: [], followup_questions: null },
+            session_state: null
+        };
 
         const updateState = (newContent: string) => {
             return new Promise(resolve => {
@@ -146,7 +172,7 @@ const Chat = () => {
                     answer += newContent;
                     const latestResponse: ChatAppResponse = {
                         ...askResponse,
-                        message: { content: answer, role: askResponse.message.role }
+                        output_text: answer
                     };
                     setStreamedAnswers([...answers, [question, latestResponse]]);
                     resolve(null);
@@ -156,25 +182,34 @@ const Chat = () => {
         try {
             setIsStreaming(true);
             for await (const event of readNDJSONStream(responseBody)) {
-                if (event["context"] && event["context"]["data_points"]) {
-                    event["message"] = event["delta"];
-                    askResponse = event as ChatAppResponse;
-                } else if (event["delta"] && event["delta"]["content"]) {
+                if (signal.aborted) {
+                    break;
+                }
+                if (event["type"] === "response.context" && event["context"] && event["context"]["data_points"]) {
+                    askResponse = { ...askResponse, context: event["context"], session_state: event["session_state"] };
+                } else if (event["type"] === "response.output_text.delta" && event["delta"] !== undefined) {
                     setIsLoading(false);
-                    await updateState(event["delta"]["content"]);
-                } else if (event["context"]) {
+                    await updateState(event["delta"]);
+                } else if (event["type"] === "response.context" && event["context"]) {
                     // Update context with new keys from latest event
                     askResponse.context = { ...askResponse.context, ...event["context"] };
                 } else if (event["error"]) {
                     throw Error(event["error"]);
                 }
             }
+        } catch (e) {
+            if (e instanceof DOMException && e.name === "AbortError") {
+                // User clicked stop - don't treat as error
+                console.log("Stream aborted by user");
+            } else {
+                throw e; // Re-throw other errors to be caught by makeApiRequest
+            }
         } finally {
             setIsStreaming(false);
         }
         const fullResponse: ChatAppResponse = {
             ...askResponse,
-            message: { content: answer, role: askResponse.message.role }
+            output_text: answer
         };
         return fullResponse;
     };
@@ -189,10 +224,43 @@ const Chat = () => {
     })();
     const historyManager = useHistoryManager(historyProvider);
 
+    const updateStreamingPreference = (isStreamingEnabledOverride: boolean, disablesStreamingOverride: boolean) => {
+        if (!isStreamingEnabledOverride) {
+            setShouldStream(current => {
+                if (!forcedStreamingRef.current) {
+                    previousShouldStreamRef.current = current;
+                }
+                forcedStreamingRef.current = true;
+                return current ? false : current;
+            });
+            return;
+        }
+
+        if (disablesStreamingOverride) {
+            setShouldStream(current => {
+                if (!forcedStreamingRef.current) {
+                    previousShouldStreamRef.current = current;
+                }
+                forcedStreamingRef.current = true;
+                return current ? false : current;
+            });
+            return;
+        }
+
+        forcedStreamingRef.current = false;
+        setShouldStream(current => {
+            const desiredShouldStream = previousShouldStreamRef.current;
+            return current === desiredShouldStream ? current : desiredShouldStream;
+        });
+    };
+
     const makeApiRequest = async (question: string) => {
+        const controller = new AbortController();
+        setAbortController(controller);
         lastQuestionRef.current = question;
 
         error && setError(undefined);
+        setRestoredQuestion("");
         setIsLoading(true);
         setActiveCitation(undefined);
         setActiveAnalysisPanelTab(undefined);
@@ -202,7 +270,7 @@ const Chat = () => {
         try {
             const messages: ResponseMessage[] = answers.flatMap(a => [
                 { content: a[0], role: "user" },
-                { content: a[1].message.content, role: "assistant" }
+                { content: a[1].output_text, role: "assistant" }
             ]);
 
             const request: ChatAppRequest = {
@@ -213,7 +281,7 @@ const Chat = () => {
                         include_category: includeCategory.length === 0 ? undefined : includeCategory,
                         exclude_category: excludeCategory.length === 0 ? undefined : excludeCategory,
                         top: retrieveCount,
-                        results_merge_strategy: resultsMergeStrategy,
+                        ...(useAgenticKnowledgeBase ? { retrieval_reasoning_effort: agenticReasoningEffort } : {}),
                         temperature: temperature,
                         minimum_reranker_score: minimumRerankerScore,
                         minimum_search_score: minimumSearchScore,
@@ -223,34 +291,41 @@ const Chat = () => {
                         query_rewriting: useQueryRewriting,
                         reasoning_effort: reasoningEffort,
                         suggest_followup_questions: useSuggestFollowupQuestions,
-                        use_oid_security_filter: useOidSecurityFilter,
-                        use_groups_security_filter: useGroupsSecurityFilter,
                         search_text_embeddings: searchTextEmbeddings,
                         search_image_embeddings: searchImageEmbeddings,
                         send_text_sources: sendTextSources,
                         send_image_sources: sendImageSources,
                         language: i18n.language,
-                        use_agentic_retrieval: useAgenticRetrieval,
-                        ...(seed !== null ? { seed: seed } : {})
+                        use_agentic_knowledgebase: useAgenticKnowledgeBase,
+                        use_web_source: webSourceSupported ? webSourceEnabled : false,
+                        use_sharepoint_source: sharePointSourceSupported ? sharePointSourceEnabled : false
                     }
                 },
                 // AI Chat Protocol: Client must pass on any session state received from the server
                 session_state: answers.length ? answers[answers.length - 1][1].session_state : null
             };
 
-            const response = await chatApi(request, shouldStream, token);
+            const response = await chatApi(request, shouldStream, token, controller.signal);
             if (!response.body) {
                 throw Error("No response body");
             }
             if (response.status > 299 || !response.ok) {
-                throw Error(`Request failed with status ${response.status}`);
+                const errorBody = await response.json().catch(() => null);
+                throw Error(errorBody?.error || `Request failed with status ${response.status}`);
             }
             if (shouldStream) {
-                const parsedResponse: ChatAppResponse = await handleAsyncRequest(question, answers, response.body);
-                setAnswers([...answers, [question, parsedResponse]]);
-                if (typeof parsedResponse.session_state === "string" && parsedResponse.session_state !== "") {
-                    const token = client ? await getToken(client) : undefined;
-                    historyManager.addItem(parsedResponse.session_state, [...answers, [question, parsedResponse]], token);
+                const parsedResponse: ChatAppResponse = await handleAsyncRequest(question, answers, response.body, controller.signal);
+                // Only add to answers if we got content, otherwise restore question to input
+                if (parsedResponse.output_text) {
+                    setAnswers([...answers, [question, parsedResponse]]);
+                    if (typeof parsedResponse.session_state === "string" && parsedResponse.session_state !== "") {
+                        const token = client ? await getToken(client) : undefined;
+                        historyManager.addItem(parsedResponse.session_state, [...answers, [question, parsedResponse]], token);
+                    }
+                } else {
+                    // Stopped before any content arrived - restore question to input
+                    lastQuestionRef.current = answers.length > 0 ? answers[answers.length - 1][0] : "";
+                    setRestoredQuestion(question);
                 }
             } else {
                 const parsedResponse: ChatAppResponseOrError = await response.json();
@@ -265,9 +340,16 @@ const Chat = () => {
             }
             setSpeechUrls([...speechUrls, null]);
         } catch (e) {
-            setError(e);
+            if (e instanceof DOMException && e.name === "AbortError") {
+                // Stopped during loading - restore question to input
+                lastQuestionRef.current = answers.length > 0 ? answers[answers.length - 1][0] : "";
+                setRestoredQuestion(question);
+            } else {
+                setError(e);
+            }
         } finally {
             setIsLoading(false);
+            setAbortController(null);
         }
     };
 
@@ -282,13 +364,25 @@ const Chat = () => {
         setAnswerFeedback({});
         setIsLoading(false);
         setIsStreaming(false);
+        setRestoredQuestion("");
     };
 
-    useEffect(() => chatMessageStreamEnd.current?.scrollIntoView({ behavior: "smooth" }), [isLoading]);
-    useEffect(() => chatMessageStreamEnd.current?.scrollIntoView({ behavior: "auto" }), [streamedAnswers]);
+    useEffect(() => {
+        chatMessageStreamEnd.current?.scrollIntoView({ behavior: "smooth" });
+    }, [isLoading]);
+
+    useEffect(() => {
+        chatMessageStreamEnd.current?.scrollIntoView({ behavior: "auto" });
+    }, [streamedAnswers]);
+
     useEffect(() => {
         getConfig();
     }, []);
+
+    // Preserve streaming preference when agentic retrieval forces streaming off.
+    useEffect(() => {
+        updateStreamingPreference(streamingEnabled, streamingDisabledByOverrides);
+    }, [streamingDisabledByOverrides, streamingEnabled]);
 
     const handleSettingsChange = (field: string, value: any) => {
         switch (field) {
@@ -297,9 +391,6 @@ const Chat = () => {
                 break;
             case "temperature":
                 setTemperature(value);
-                break;
-            case "seed":
-                setSeed(value);
                 break;
             case "minimumRerankerScore":
                 setMinimumRerankerScore(value);
@@ -310,9 +401,17 @@ const Chat = () => {
             case "retrieveCount":
                 setRetrieveCount(value);
                 break;
-            case "resultsMergeStrategy":
-                setResultsMergeStrategy(value);
+            case "agenticReasoningEffort": {
+                setRetrievalReasoningEffort(value);
+                // If selecting minimal while web source is enabled, disable web source
+                if (value === "minimal" && webSourceEnabled) {
+                    setWebSourceEnabled(false);
+                    setHideMinimalRetrievalReasoningOption(false);
+                    // Web source was disabled, so restore streaming
+                    updateStreamingPreference(streamingEnabled, false);
+                }
                 break;
+            }
             case "useSemanticRanker":
                 setUseSemanticRanker(value);
                 break;
@@ -331,14 +430,13 @@ const Chat = () => {
             case "includeCategory":
                 setIncludeCategory(value);
                 break;
-            case "useOidSecurityFilter":
-                setUseOidSecurityFilter(value);
-                break;
-            case "useGroupsSecurityFilter":
-                setUseGroupsSecurityFilter(value);
-                break;
             case "shouldStream":
-                setShouldStream(value);
+                {
+                    const normalizedShouldStream = !!value;
+                    forcedStreamingRef.current = false;
+                    previousShouldStreamRef.current = normalizedShouldStream;
+                    setShouldStream(normalizedShouldStream);
+                }
                 break;
             case "useSuggestFollowupQuestions":
                 setUseSuggestFollowupQuestions(value);
@@ -360,8 +458,40 @@ const Chat = () => {
             case "retrievalMode":
                 setRetrievalMode(value);
                 break;
-            case "useAgenticRetrieval":
+            case "useAgenticKnowledgeBase": {
                 setUseAgenticRetrieval(value);
+                let effectiveWebSource = webSourceEnabled;
+                if (!value && webSourceEnabled) {
+                    effectiveWebSource = false;
+                    setWebSourceEnabled(false);
+                    setHideMinimalRetrievalReasoningOption(false);
+                }
+                // Only web source disables streaming
+                const shouldDisableStreaming = !!value && effectiveWebSource;
+                updateStreamingPreference(streamingEnabled, shouldDisableStreaming);
+                break;
+            }
+            case "useWebSource":
+                if (!webSourceSupported) {
+                    setWebSourceEnabled(false);
+                    return;
+                }
+                const normalizedWebSource = !!value;
+                setWebSourceEnabled(normalizedWebSource);
+                setHideMinimalRetrievalReasoningOption(normalizedWebSource);
+                // When enabling web source, disable follow-up questions and streaming
+                if (normalizedWebSource) {
+                    setUseSuggestFollowupQuestions(false);
+                }
+                const shouldDisableStreaming = useAgenticKnowledgeBase && normalizedWebSource;
+                updateStreamingPreference(streamingEnabled, shouldDisableStreaming);
+                break;
+            case "useSharePointSource":
+                if (!sharePointSourceSupported) {
+                    setSharePointSourceEnabled(false);
+                    return;
+                }
+                setSharePointSourceEnabled(!!value);
                 break;
         }
     };
@@ -389,6 +519,16 @@ const Chat = () => {
         }
 
         setSelectedAnswer(index);
+    };
+
+    const onStopClick = async () => {
+        try {
+            if (abortController) {
+                abortController.abort();
+            }
+        } catch (e) {
+            console.log("An error occurred trying to stop the stream: ", e);
+        }
     };
 
     const { t, i18n } = useTranslation();
@@ -520,6 +660,10 @@ const Chat = () => {
                             disabled={isLoading}
                             onSend={question => makeApiRequest(question)}
                             showSpeechInput={showSpeechInput}
+                            isStreaming={isStreaming}
+                            isLoading={isLoading}
+                            onStop={onStopClick}
+                            initQuestion={restoredQuestion}
                         />
                     </div>
                 </div>
@@ -532,6 +676,7 @@ const Chat = () => {
                         citationHeight="810px"
                         answer={answers[selectedAnswer][1]}
                         activeTab={activeAnalysisPanelTab}
+                        onCitationClicked={c => onShowCitation(c, selectedAnswer)}
                     />
                 )}
 
@@ -549,54 +694,75 @@ const Chat = () => {
                     />
                 )}
 
-                <Panel
-                    headerText={t("labels.headerText")}
-                    isOpen={isConfigPanelOpen}
-                    isBlocking={false}
-                    onDismiss={() => setIsConfigPanelOpen(false)}
-                    closeButtonAriaLabel={t("labels.closeButton")}
-                    onRenderFooterContent={() => <DefaultButton onClick={() => setIsConfigPanelOpen(false)}>{t("labels.closeButton")}</DefaultButton>}
-                    isFooterAtBottom={true}
+                <OverlayDrawer
+                    position="end"
+                    open={isConfigPanelOpen}
+                    modalType="non-modal"
+                    style={{ width: "400px" }}
+                    onOpenChange={(_ev: DialogOpenChangeEvent, { open }: DialogOpenChangeData) => {
+                        if (!open) setIsConfigPanelOpen(false);
+                    }}
                 >
-                    <Settings
-                        promptTemplate={promptTemplate}
-                        temperature={temperature}
-                        retrieveCount={retrieveCount}
-                        resultsMergeStrategy={resultsMergeStrategy}
-                        seed={seed}
-                        minimumSearchScore={minimumSearchScore}
-                        minimumRerankerScore={minimumRerankerScore}
-                        useSemanticRanker={useSemanticRanker}
-                        useSemanticCaptions={useSemanticCaptions}
-                        useQueryRewriting={useQueryRewriting}
-                        reasoningEffort={reasoningEffort}
-                        excludeCategory={excludeCategory}
-                        includeCategory={includeCategory}
-                        retrievalMode={retrievalMode}
-                        showMultimodalOptions={showMultimodalOptions}
-                        sendTextSources={sendTextSources}
-                        sendImageSources={sendImageSources}
-                        searchTextEmbeddings={searchTextEmbeddings}
-                        searchImageEmbeddings={searchImageEmbeddings}
-                        showSemanticRankerOption={showSemanticRankerOption}
-                        showQueryRewritingOption={showQueryRewritingOption}
-                        showReasoningEffortOption={showReasoningEffortOption}
-                        showVectorOption={showVectorOption}
-                        useOidSecurityFilter={useOidSecurityFilter}
-                        useGroupsSecurityFilter={useGroupsSecurityFilter}
-                        useLogin={!!useLogin}
-                        loggedIn={loggedIn}
-                        requireAccessControl={requireAccessControl}
-                        shouldStream={shouldStream}
-                        streamingEnabled={streamingEnabled}
-                        useSuggestFollowupQuestions={useSuggestFollowupQuestions}
-                        showSuggestFollowupQuestions={true}
-                        showAgenticRetrievalOption={showAgenticRetrievalOption}
-                        useAgenticRetrieval={useAgenticRetrieval}
-                        onChange={handleSettingsChange}
-                    />
-                    {useLogin && <TokenClaimsDisplay />}
-                </Panel>
+                    <DrawerHeader>
+                        <DrawerHeaderTitle
+                            action={
+                                <Button
+                                    appearance="subtle"
+                                    aria-label={t("labels.closeButton")}
+                                    icon={<Dismiss24Regular />}
+                                    onClick={() => setIsConfigPanelOpen(false)}
+                                />
+                            }
+                        >
+                            {t("labels.headerText")}
+                        </DrawerHeaderTitle>
+                    </DrawerHeader>
+                    <DrawerBody>
+                        <Settings
+                            promptTemplate={promptTemplate}
+                            temperature={temperature}
+                            retrieveCount={retrieveCount}
+                            agenticReasoningEffort={agenticReasoningEffort}
+                            minimumSearchScore={minimumSearchScore}
+                            minimumRerankerScore={minimumRerankerScore}
+                            useSemanticRanker={useSemanticRanker}
+                            useSemanticCaptions={useSemanticCaptions}
+                            useQueryRewriting={useQueryRewriting}
+                            reasoningEffort={reasoningEffort}
+                            reasoningEffortOptions={reasoningEffortOptions}
+                            excludeCategory={excludeCategory}
+                            includeCategory={includeCategory}
+                            retrievalMode={retrievalMode}
+                            showMultimodalOptions={showMultimodalOptions}
+                            sendTextSources={sendTextSources}
+                            sendImageSources={sendImageSources}
+                            searchTextEmbeddings={searchTextEmbeddings}
+                            searchImageEmbeddings={searchImageEmbeddings}
+                            showSemanticRankerOption={showSemanticRankerOption}
+                            showQueryRewritingOption={showQueryRewritingOption}
+                            showReasoningEffortOption={showReasoningEffortOption}
+                            showVectorOption={showVectorOption}
+                            useLogin={!!useLogin}
+                            loggedIn={loggedIn}
+                            requireAccessControl={requireAccessControl}
+                            shouldStream={shouldStream}
+                            streamingEnabled={streamingEnabled}
+                            useSuggestFollowupQuestions={useSuggestFollowupQuestions}
+                            showAgenticRetrievalOption={showAgenticRetrievalOption}
+                            useAgenticKnowledgeBase={useAgenticKnowledgeBase}
+                            useWebSource={webSourceEnabled}
+                            showWebSourceOption={webSourceSupported}
+                            useSharePointSource={sharePointSourceEnabled}
+                            showSharePointSourceOption={sharePointSourceSupported}
+                            hideMinimalRetrievalReasoningOption={hideMinimalRetrievalReasoningOption}
+                            onChange={handleSettingsChange}
+                        />
+                        {useLogin && <TokenClaimsDisplay />}
+                        <div style={{ marginTop: "auto", padding: "16px 0" }}>
+                            <Button onClick={() => setIsConfigPanelOpen(false)}>{t("labels.closeButton")}</Button>
+                        </div>
+                    </DrawerBody>
+                </OverlayDrawer>
             </div>
         </div>
     );

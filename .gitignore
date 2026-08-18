@@ -134,6 +134,9 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# ty
+.ty_cache/
+
 # Pyre type checker
 .pyre/
 
@@ -148,6 +151,13 @@ npm-debug.log*
 node_modules
 static/
 
+app/functions/*/prepdocslib/
+app/functions/*/requirements.txt
+
 data/**/*.md5
 
 .DS_Store
+
+# Compiled Bicep output (from `az bicep build`)
+infra/main.json
+infra/main.test.json

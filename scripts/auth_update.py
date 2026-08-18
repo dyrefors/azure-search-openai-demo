@@ -2,6 +2,7 @@ import asyncio
 import os
 
 from azure.identity.aio import AzureDeveloperCliCredential
+from dotenv_azd import load_azd_env
 from msgraph import GraphServiceClient
 from msgraph.generated.models.application import Application
 from msgraph.generated.models.public_client_application import PublicClientApplication
@@ -12,11 +13,12 @@ from auth_common import get_application, test_authentication_enabled
 
 
 async def main():
+    load_azd_env(override=os.getenv("LOADING_MODE_FOR_AZD_ENV_VARS") != "no-override")
     if not test_authentication_enabled():
         print("Not updating authentication.")
         exit(0)
 
-    auth_tenant = os.getenv("AZURE_AUTH_TENANT_ID", os.environ["AZURE_TENANT_ID"])
+    auth_tenant = (os.getenv("AZURE_AUTH_TENANT_ID") or os.getenv("AZURE_TENANT_ID") or "").strip()
     credential = AzureDeveloperCliCredential(tenant_id=auth_tenant)
 
     scopes = ["https://graph.microsoft.com/.default"]

@@ -1,10 +1,12 @@
-import { Spinner, SpinnerSize, MessageBar, MessageBarType, Link, IconButton } from "@fluentui/react";
+import { Spinner, MessageBar, MessageBarBody, Link, Button } from "@fluentui/react-components";
+import { Save24Regular } from "@fluentui/react-icons";
 import { useTranslation } from "react-i18next";
 import React, { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import styles from "./MarkdownViewer.module.css";
+import { fetchWithAuthRedirect } from "../../api";
 
 interface MarkdownViewerProps {
     src: string;
@@ -28,7 +30,7 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ src }) => {
     useEffect(() => {
         const fetchMarkdown = async () => {
             try {
-                const response = await fetch(src);
+                const response = await fetchWithAuthRedirect(src);
 
                 if (!response.ok) {
                     throw new Error("Failed loading markdown file.");
@@ -51,28 +53,30 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({ src }) => {
         <div>
             {isLoading ? (
                 <div className={`${styles.loading} ${styles.markdownViewer}`}>
-                    <Spinner size={SpinnerSize.large} label="Loading file" />
+                    <Spinner size="large" label="Loading file" />
                 </div>
             ) : error ? (
                 <div className={`${styles.error} ${styles.markdownViewer}`}>
-                    <MessageBar messageBarType={MessageBarType.error} isMultiline={false}>
-                        {error.message}
-                        <Link href={src} download>
-                            Download the file
-                        </Link>
+                    <MessageBar intent="error">
+                        <MessageBarBody>
+                            {error.message}
+                            <Link href={src} download>
+                                Download the file
+                            </Link>
+                        </MessageBarBody>
                     </MessageBar>
                 </div>
             ) : (
                 <div>
-                    <IconButton
-                        className={styles.downloadButton}
-                        style={{ color: "black" }}
-                        iconProps={{ iconName: "Save" }}
-                        title={t("tooltips.save")}
-                        ariaLabel={t("tooltips.save")}
-                        href={src}
-                        download
-                    />
+                    <a href={src} download className={styles.downloadButton}>
+                        <Button
+                            appearance="transparent"
+                            style={{ color: "black" }}
+                            icon={<Save24Regular />}
+                            title={t("tooltips.save")}
+                            aria-label={t("tooltips.save")}
+                        />
+                    </a>
                     <ReactMarkdown children={content} remarkPlugins={[remarkGfm]} className={`${styles.markdown} ${styles.markdownViewer}`} />
                 </div>
             )}
